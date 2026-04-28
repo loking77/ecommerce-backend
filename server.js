@@ -12,16 +12,22 @@ const auth = require("./middleware/auth");
 
 const app = express();
 
+/* ---------------- CONFIG ---------------- */
+
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL;
 const SERVER_URL = process.env.SERVER_URL;
 const MONGO_URI = process.env.MONGO_URI;
+
+/* ---------------- SECURITY ---------------- */
 
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
   })
 );
+
+/* ---------------- CORS ---------------- */
 
 app.use(
   cors({
@@ -30,7 +36,11 @@ app.use(
   })
 );
 
+/* ---------------- MIDDLEWARE ---------------- */
+
 app.use(express.json());
+
+/* ---------------- CLOUDINARY ---------------- */
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -38,10 +48,14 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/* ---------------- DB ---------------- */
+
 mongoose
   .connect(MONGO_URI)
   .then(() => console.log("MongoDB connecté"))
   .catch((err) => console.log("Erreur MongoDB :", err.message));
+
+/* ---------------- ROUTES IMPORT ---------------- */
 
 const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
@@ -62,23 +76,30 @@ const Review = require("./models/Review");
 const Order = require("./models/Order");
 const User = require("./models/User");
 
+/* ---------------- MULTER MEMORY ---------------- */
+
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
+
+/* ---------------- ADMIN CHECK ---------------- */
 
 const adminOnly = (req, res, next) => {
   if (req.user.role !== "admin") {
     return res.status(403).json({ message: "Accès refusé" });
   }
+
   next();
 };
+
+/* ---------------- CLOUDINARY UPLOAD ---------------- */
 
 const uploadToCloudinary = (buffer) => {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { folder: "ecommerce" },
       (error, result) => {
-        if (result) resolve(result.secure_url);
-        else reject(error);
+        if (error) return reject(error);
+        resolve(result.secure_url);
       }
     );
 
@@ -86,7 +107,7 @@ const uploadToCloudinary = (buffer) => {
   });
 };
 
-/* PRODUCTS */
+/* ---------------- PRODUCTS ---------------- */
 
 app.get("/products", async (req, res) => {
   try {
@@ -103,7 +124,7 @@ app.patch("/products/:id/view", async (req, res) => {
     const product = await Product.findByIdAndUpdate(
       req.params.id,
       { $inc: { views: 1 } },
-      { new: true }
+      { returnDocument: "after" }
     );
 
     res.json(product);
@@ -113,7 +134,7 @@ app.patch("/products/:id/view", async (req, res) => {
   }
 });
 
-/* REVIEWS */
+/* ---------------- REVIEWS ---------------- */
 
 app.get("/reviews/:productId", async (req, res) => {
   try {
@@ -220,7 +241,7 @@ app.post("/reviews/:productId", auth, async (req, res) => {
   }
 });
 
-/* ADD PRODUCT */
+/* ---------------- ADD PRODUCT ---------------- */
 
 app.post("/products", auth, adminOnly, upload.array("images"), async (req, res) => {
   try {
@@ -253,7 +274,7 @@ app.post("/products", auth, adminOnly, upload.array("images"), async (req, res) 
   }
 });
 
-/* UPDATE PRODUCT */
+/* ---------------- UPDATE PRODUCT ---------------- */
 
 app.put("/products/:id", auth, adminOnly, upload.array("images"), async (req, res) => {
   try {
@@ -277,7 +298,7 @@ app.put("/products/:id", auth, adminOnly, upload.array("images"), async (req, re
     }
 
     const product = await Product.findByIdAndUpdate(req.params.id, data, {
-      new: true,
+      returnDocument: "after",
     });
 
     res.json(product);
@@ -287,7 +308,7 @@ app.put("/products/:id", auth, adminOnly, upload.array("images"), async (req, re
   }
 });
 
-/* DELETE PRODUCT */
+/* ---------------- DELETE PRODUCT ---------------- */
 
 app.delete("/products/:id", auth, adminOnly, async (req, res) => {
   try {
@@ -301,13 +322,13 @@ app.delete("/products/:id", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* TEST */
+/* ---------------- TEST ---------------- */
 
 app.get("/", (req, res) => {
   res.send("API OK 🚀");
 });
 
-/* START */
+/* ---------------- START ---------------- */
 
 app.listen(PORT, () => {
   console.log(`Server running on ${SERVER_URL || `http://localhost:${PORT}`}`);
