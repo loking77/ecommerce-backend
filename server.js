@@ -17,14 +17,22 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${PORT}`;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ecom";
 
-/* ---------------- CORS FIX ---------------- */
+/* ---------------- CORS PRO ---------------- */
+
+const allowedOrigins = [
+  CLIENT_URL,
+  "http://localhost:3000",
+  "http://127.0.0.1:3000"
+];
 
 app.use(cors({
-  origin: [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://magnificent-snickerdoodle-823fdb.netlify.app"
-  ],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("CORS refusé : " + origin));
+  },
   credentials: true
 }));
 
@@ -32,19 +40,21 @@ app.use(cors({
 
 app.use(express.json());
 
-/* ---------------- UPLOAD DOSSIER ---------------- */
+/* ---------------- UPLOADS ---------------- */
 
-if (!fs.existsSync("uploads")) {
-  fs.mkdirSync("uploads");
+const uploadsDir = path.join(__dirname, "uploads");
+
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
 }
 
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(uploadsDir));
 
 /* ---------------- DB ---------------- */
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB connecté"))
-  .catch(err => console.log("Erreur MongoDB :", err));
+  .catch(err => console.log("Erreur MongoDB :", err.message));
 
 /* ---------------- ROUTES IMPORT ---------------- */
 
@@ -68,7 +78,7 @@ const Review = require("./models/Review");
 /* ---------------- MULTER ---------------- */
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
     const uniqueName = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueName + path.extname(file.originalname));
@@ -83,6 +93,7 @@ const adminOnly = (req, res, next) => {
   if (req.user.role !== "admin") {
     return res.status(403).json({ message: "Accès refusé" });
   }
+
   next();
 };
 
@@ -92,12 +103,11 @@ app.get("/products", async (req, res) => {
   try {
     const products = await Product.find().sort({ createdAt: -1 });
     res.json(products);
-  } catch {
+  } catch (err) {
+    console.log("Erreur produits :", err.message);
     res.status(500).json({ message: "Erreur produits" });
   }
 });
-
-/* ----------- VIEW COUNT ----------- */
 
 app.patch("/products/:id/view", async (req, res) => {
   try {
@@ -106,8 +116,10 @@ app.patch("/products/:id/view", async (req, res) => {
       { $inc: { views: 1 } },
       { new: true }
     );
+
     res.json(product);
-  } catch {
+  } catch (err) {
+    console.log("Erreur vue :", err.message);
     res.status(500).json({ message: "Erreur vue" });
   }
 });
@@ -130,7 +142,8 @@ app.get("/reviews/:productId", async (req, res) => {
       count: reviews.length,
       average: Number(average.toFixed(1))
     });
-  } catch {
+  } catch (err) {
+    console.log("Erreur avis :", err.message);
     res.status(500).json({ message: "Erreur avis" });
   }
 });
@@ -156,6 +169,8 @@ app.post("/reviews/:productId", auth, async (req, res) => {
     if (err.code === 11000) {
       return res.status(400).json({ message: "Déjà commenté" });
     }
+
+    console.log("Erreur ajout avis :", err.message);
     res.status(500).json({ message: "Erreur avis" });
   }
 });
@@ -164,12 +179,15 @@ app.post("/reviews/:productId", auth, async (req, res) => {
 
 app.post("/products", auth, adminOnly, upload.any(), async (req, res) => {
   try {
-    const images = req.files?.map(f => `${SERVER_URL}/uploads/${f.filename}`) || [];
+    const images = req.files?.map(file => `${SERVER_URL}/uploads/${file.filename}`) || [];
 
     const product = new Product({
       ...req.body,
       price: Number(req.body.price || 0),
+      oldPrice: Number(req.body.oldPrice || 0),
       stock: Number(req.body.stock || 0),
+      colors: req.body.colors ? req.body.colors.split(",").map(c => c.trim()) : [],
+      sizes: req.body.sizes ? req.body.sizes.split(",").map(s => s.trim()) : [],
       image: images[0] || "",
       images,
       views: 0,
@@ -179,37 +197,45 @@ app.post("/products", auth, adminOnly, upload.any(), async (req, res) => {
 
     await product.save();
     res.json(product);
-
-  } catch {
+  } catch (err) {
+    console.log("Erreur ajout produit :", err.message);
     res.status(500).json({ message: "Erreur ajout produit" });
   }
 });
 
-/* ---------------- UPDATE ---------------- */
+/* ---------------- UPDATE PRODUCT ---------------- */
 
 app.put("/products/:id", auth, adminOnly, upload.any(), async (req, res) => {
   try {
     const data = {
       ...req.body,
       price: Number(req.body.price || 0),
-      stock: Number(req.body.stock || 0)
+      oldPrice: Number(req.body.oldPrice || 0),
+      stock: Number(req.body.stock || 0),
+      colors: req.body.colors ? req.body.colors.split(",").map(c => c.trim()) : [],
+      sizes: req.body.sizes ? req.body.sizes.split(",").map(s => s.trim()) : []
     };
 
     if (req.files?.length > 0) {
-      const images = req.files.map(f => `${SERVER_URL}/uploads/${f.filename}`);
+      const images = req.files.map(file => `${SERVER_URL}/uploads/${file.filename}`);
       data.image = images[0];
       data.images = images;
     }
 
-    const product = await Product.findByIdAndUpdate(req.params.id, data, { new: true });
-    res.json(product);
+    const product = await Product.findByIdAndUpdate(
+      req.params.id,
+      data,
+      { new: true }
+    );
 
-  } catch {
+    res.json(product);
+  } catch (err) {
+    console.log("Erreur update :", err.message);
     res.status(500).json({ message: "Erreur update" });
   }
 });
 
-/* ---------------- DELETE ---------------- */
+/* ---------------- DELETE PRODUCT ---------------- */
 
 app.delete("/products/:id", auth, adminOnly, async (req, res) => {
   try {
@@ -217,7 +243,8 @@ app.delete("/products/:id", auth, adminOnly, async (req, res) => {
     await Review.deleteMany({ productId: req.params.id });
 
     res.json({ message: "Supprimé" });
-  } catch {
+  } catch (err) {
+    console.log("Erreur delete :", err.message);
     res.status(500).json({ message: "Erreur delete" });
   }
 });
