@@ -223,9 +223,11 @@ app.post("/reviews/:productId", auth, async (req, res) => {
     const review = await Review.create({
       productId,
       userId: req.user.id,
+      orderId: deliveredOrder._id,
       userName: user?.name || user?.email || "Client vérifié",
       rating: Number(rating),
       comment,
+      verifiedPurchase: true,
     });
 
     res.json(review);
