@@ -17,10 +17,14 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${PORT}`;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/ecom";
 
-/* ---------------- CORS FIX (IMPORTANT) ---------------- */
+/* ---------------- CORS FIX ---------------- */
 
 app.use(cors({
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+  origin: [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://magnificent-snickerdoodle-823fdb.netlify.app"
+  ],
   credentials: true
 }));
 
@@ -88,7 +92,7 @@ app.get("/products", async (req, res) => {
   try {
     const products = await Product.find().sort({ createdAt: -1 });
     res.json(products);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Erreur produits" });
   }
 });
@@ -176,7 +180,7 @@ app.post("/products", auth, adminOnly, upload.any(), async (req, res) => {
     await product.save();
     res.json(product);
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Erreur ajout produit" });
   }
 });
