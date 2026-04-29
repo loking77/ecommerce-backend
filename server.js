@@ -88,8 +88,6 @@ app.use("/payment", paymentRoutes);
 
 const Product = require("./models/Product");
 const Review = require("./models/Review");
-const Order = require("./models/Order");
-const User = require("./models/User");
 const UserActivity = require("./models/UserActivity");
 
 /* ---------------- MULTER ---------------- */
@@ -117,7 +115,6 @@ const uploadToCloudinary = (buffer) => {
         resolve(result.secure_url);
       }
     );
-
     streamifier.createReadStream(buffer).pipe(stream);
   });
 };
@@ -129,7 +126,6 @@ app.get("/products", async (req, res) => {
     const products = await Product.find().sort({ createdAt: -1 });
     res.json(products);
   } catch (err) {
-    console.log("Erreur produits :", err.message);
     res.status(500).json({ message: "Erreur produits" });
   }
 });
@@ -141,14 +137,8 @@ app.patch("/products/:id/view", async (req, res) => {
       { $inc: { views: 1 } },
       { returnDocument: "after" }
     );
-
-    if (!product) {
-      return res.status(404).json({ message: "Produit introuvable" });
-    }
-
     res.json(product);
-  } catch (err) {
-    console.log("Erreur vue :", err.message);
+  } catch {
     res.status(500).json({ message: "Erreur vue" });
   }
 });
@@ -158,12 +148,7 @@ app.patch("/products/:id/view", async (req, res) => {
 app.post("/activity/view", auth, async (req, res) => {
   try {
     const { productId } = req.body;
-
     const product = await Product.findById(productId);
-
-    if (!product) {
-      return res.status(404).json({ message: "Produit introuvable" });
-    }
 
     await UserActivity.create({
       userId: req.user.id,
@@ -173,26 +158,18 @@ app.post("/activity/view", auth, async (req, res) => {
       category: product.category,
     });
 
-    await Product.findByIdAndUpdate(productId, {
-      $inc: { views: 1 },
-    });
+    await Product.findByIdAndUpdate(productId, { $inc: { views: 1 } });
 
-    res.json({ message: "Vue enregistrée" });
-  } catch (err) {
-    console.log("Erreur activity view :", err.message);
-    res.status(500).json({ message: "Erreur activité vue" });
+    res.json({ message: "ok" });
+  } catch {
+    res.status(500).json({ message: "Erreur activité" });
   }
 });
 
 app.post("/activity/cart", auth, async (req, res) => {
   try {
     const { productId } = req.body;
-
     const product = await Product.findById(productId);
-
-    if (!product) {
-      return res.status(404).json({ message: "Produit introuvable" });
-    }
 
     await UserActivity.create({
       userId: req.user.id,
@@ -206,81 +183,29 @@ app.post("/activity/cart", auth, async (req, res) => {
       $inc: { cartAdds: 1 },
     });
 
-    res.json({ message: "Ajout panier enregistré" });
-  } catch (err) {
-    console.log("Erreur activity cart :", err.message);
-    res.status(500).json({ message: "Erreur activité panier" });
+    res.json({ message: "ok" });
+  } catch {
+    res.status(500).json({ message: "Erreur activité" });
   }
 });
 
 app.get("/activity/recommendations", auth, async (req, res) => {
   try {
-    const activities = await UserActivity.find({ userId: req.user.id })
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const activities = await UserActivity.find({ userId: req.user.id });
 
-    const brandScores = {};
-    const categoryScores = {};
-    const seenProductIds = [];
+    const brands = activities.map((a) => a.brand).filter(Boolean);
+    const categories = activities.map((a) => a.category).filter(Boolean);
 
-    activities.forEach((a) => {
-      const weight = a.type === "cart" ? 5 : 2;
-
-      if (a.brand) {
-        brandScores[a.brand] = (brandScores[a.brand] || 0) + weight;
-      }
-
-      if (a.category) {
-        categoryScores[a.category] =
-          (categoryScores[a.category] || 0) + weight;
-      }
-
-      if (a.productId) {
-        seenProductIds.push(a.productId);
-      }
-    });
-
-    const topBrands = Object.entries(brandScores)
-      .sort((a, b) => b[1] - a[1])
-      .map(([b]) => b)
-      .slice(0, 3);
-
-    const topCategories = Object.entries(categoryScores)
-      .sort((a, b) => b[1] - a[1])
-      .map(([c]) => c)
-      .slice(0, 3);
-
-    let recommendations = await Product.find({
-      _id: { $nin: seenProductIds },
-      stock: { $gt: 0 },
+    const recos = await Product.find({
       $or: [
-        { brand: { $in: topBrands } },
-        { category: { $in: topCategories } },
+        { brand: { $in: brands } },
+        { category: { $in: categories } },
       ],
-    })
-      .sort({ cartAdds: -1, views: -1, rating: -1, createdAt: -1 })
-      .limit(12);
+    }).limit(8);
 
-    if (recommendations.length < 12) {
-      const extra = await Product.find({
-        _id: {
-          $nin: [
-            ...seenProductIds,
-            ...recommendations.map((p) => p._id),
-          ],
-        },
-        stock: { $gt: 0 },
-      })
-        .sort({ cartAdds: -1, views: -1, sold: -1 })
-        .limit(12 - recommendations.length);
-
-      recommendations = [...recommendations, ...extra];
-    }
-
-    res.json(recommendations);
-  } catch (err) {
-    console.log("Erreur recommandations :", err.message);
-    res.status(500).json({ message: "Erreur recommandations" });
+    res.json(recos);
+  } catch {
+    res.status(500).json({ message: "Erreur reco" });
   }
 });
 
@@ -290,7 +215,7 @@ app.post("/products", auth, adminOnly, upload.array("images"), async (req, res) 
   try {
     const imageUrls = [];
 
-    if (req.files) {
+    if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const url = await uploadToCloudinary(file.buffer);
         imageUrls.push(url);
@@ -315,6 +240,53 @@ app.post("/products", auth, adminOnly, upload.array("images"), async (req, res) 
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Erreur ajout produit" });
+  }
+});
+
+/* ---------------- UPDATE PRODUCT ---------------- */
+
+app.put("/products/:id", auth, adminOnly, upload.array("images"), async (req, res) => {
+  try {
+    const data = {
+      ...req.body,
+      price: Number(req.body.price || 0),
+      oldPrice: Number(req.body.oldPrice || 0),
+      stock: Number(req.body.stock || 0),
+    };
+
+    if (req.files && req.files.length > 0) {
+      const imageUrls = [];
+
+      for (const file of req.files) {
+        const url = await uploadToCloudinary(file.buffer);
+        imageUrls.push(url);
+      }
+
+      data.image = imageUrls[0];
+      data.images = imageUrls;
+    }
+
+    const product = await Product.findByIdAndUpdate(req.params.id, data, {
+      returnDocument: "after",
+    });
+
+    res.json(product);
+  } catch {
+    res.status(500).json({ message: "Erreur update" });
+  }
+});
+
+/* ---------------- DELETE PRODUCT ---------------- */
+
+app.delete("/products/:id", auth, adminOnly, async (req, res) => {
+  try {
+    await Product.findByIdAndDelete(req.params.id);
+    await Review.deleteMany({ productId: req.params.id });
+    await UserActivity.deleteMany({ productId: req.params.id });
+
+    res.json({ message: "Produit supprimé" });
+  } catch {
+    res.status(500).json({ message: "Erreur suppression" });
   }
 });
 
