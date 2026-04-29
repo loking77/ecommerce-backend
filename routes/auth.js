@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const passport = require("passport");
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const User = require("../models/User");
 
 const router = express.Router();
@@ -12,7 +13,49 @@ const FRONTEND_URL =
   process.env.CLIENT_URL ||
   "http://localhost:3000";
 
+const SERVER_URL =
+  process.env.SERVER_URL ||
+  process.env.BACKEND_URL ||
+  "http://localhost:5000";
+
 const JWT_SECRET = process.env.JWT_SECRET || "SECRET_KEY";
+
+/* ---------------- GOOGLE STRATEGY ---------------- */
+
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: `${SERVER_URL}/auth/google/callback`,
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        const email = profile.emails?.[0]?.value;
+        const name = profile.displayName || email;
+
+        if (!email) {
+          return done(null, false);
+        }
+
+        let user = await User.findOne({ email });
+
+        if (!user) {
+          user = await User.create({
+            name,
+            email,
+            password: "GOOGLE_AUTH_USER",
+            role: "user",
+          });
+        }
+
+        return done(null, user);
+      } catch (err) {
+        return done(err, null);
+      }
+    }
+  )
+);
 
 /* ---------------- REGISTER ---------------- */
 
@@ -21,6 +64,7 @@ router.post("/register", async (req, res) => {
     const { name, email, password } = req.body;
 
     const userExists = await User.findOne({ email });
+
     if (userExists) {
       return res.status(400).json({ message: "Email déjà utilisé" });
     }
@@ -50,6 +94,7 @@ router.post("/login", async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
+
     if (!user) {
       return res.status(400).json({ message: "Utilisateur introuvable" });
     }
@@ -61,6 +106,7 @@ router.post("/login", async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
+
     if (!isMatch) {
       return res.status(400).json({ message: "Mot de passe incorrect" });
     }
@@ -93,6 +139,7 @@ router.get(
   "/google",
   passport.authenticate("google", {
     scope: ["profile", "email"],
+    prompt: "select_account",
   })
 );
 
@@ -133,6 +180,7 @@ router.post("/forgot-password", async (req, res) => {
     const { email } = req.body;
 
     const user = await User.findOne({ email });
+
     if (!user) {
       return res.status(400).json({ message: "Utilisateur introuvable" });
     }
