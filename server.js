@@ -1,5 +1,5 @@
 require("dotenv").config();
-
+console.log("🔥 SHIPPING BACKEND ROUTE ACTIVE");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
