@@ -1,5 +1,5 @@
 require("dotenv").config();
-console.log("🔥 SHIPPING BACKEND ROUTE ACTIVE");
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -46,6 +46,13 @@ app.use(
     origin: [CLIENT_URL, "http://localhost:3000"],
     credentials: true,
   })
+);
+
+/* ---------------- 🔥 WEBHOOK STRIPE AVANT JSON ---------------- */
+
+app.use(
+  "/payment/webhook",
+  express.raw({ type: "application/json" })
 );
 
 /* ---------------- MIDDLEWARE ---------------- */
@@ -299,5 +306,5 @@ app.get("/", (req, res) => {
 /* ---------------- START ---------------- */
 
 app.listen(PORT, () => {
-  console.log(`Server running on ${SERVER_URL}`);
+  console.log(`🚀 Server running on ${SERVER_URL}`);
 });

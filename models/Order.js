@@ -26,7 +26,8 @@ const OrderSchema = new mongoose.Schema({
     carrier: String,
     service: String,
     price: Number,
-    delay: String
+    delay: String,
+    type: String
   },
 
   tracking: {
@@ -36,6 +37,11 @@ const OrderSchema = new mongoose.Schema({
   },
 
   total: Number,
+
+  payment: {
+    stripeSessionId: String,
+    status: String
+  },
 
   delivery: {
     firstName: String,
