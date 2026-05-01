@@ -48,23 +48,6 @@ app.use(
   })
 );
 
-/* ---------------- STRIPE WEBHOOK AVANT JSON ---------------- */
-
-app.use("/payment/webhook", express.raw({ type: "application/json" }));
-
-/* ---------------- MIDDLEWARE ---------------- */
-
-app.use(express.json());
-app.use(passport.initialize());
-
-/* ---------------- CLOUDINARY ---------------- */
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
 /* ---------------- DB ---------------- */
 
 mongoose
@@ -74,30 +57,43 @@ mongoose
 
 /* ---------------- ROUTES IMPORT ---------------- */
 
+const paymentRoutes = require("./routes/payment");
 const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
 const profileRoutes = require("./routes/profile");
 const orderRoutes = require("./routes/orders");
 const shippingRoutes = require("./routes/shipping");
-const paymentRoutes = require("./routes/payment");
+
+/* ---------------- STRIPE PAYMENT ROUTES AVANT JSON ---------------- */
+
+app.use("/payment", paymentRoutes);
+
+/* ---------------- MIDDLEWARE JSON POUR LE RESTE ---------------- */
+
+app.use(express.json());
+app.use(passport.initialize());
+
+/* ---------------- OTHER ROUTES ---------------- */
 
 app.use("/auth", authRoutes);
 app.use("/cart", cartRoutes);
 app.use("/profile", profileRoutes);
 app.use("/orders", orderRoutes);
 app.use("/shipping", shippingRoutes);
-app.use("/payment", paymentRoutes);
+
+/* ---------------- CLOUDINARY ---------------- */
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 /* ---------------- MODELS ---------------- */
 
 const Product = require("./models/Product");
 const Review = require("./models/Review");
 const UserActivity = require("./models/UserActivity");
-
-/* ---------------- DEBUG TEMPORAIRE ---------------- */
-
-const OrderDebug = require("./models/Order");
-console.log("🔥 ORDER SHIPPING SCHEMA :", OrderDebug.schema.obj.shipping);
 
 /* ---------------- MULTER ---------------- */
 
