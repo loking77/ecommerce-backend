@@ -76,6 +76,50 @@ const OrderSchema = new mongoose.Schema(
       type: String,
       default: "En attente",
     },
+
+    customerRequest: {
+      type: {
+        type: String,
+        enum: ["", "cancel", "refund", "return"],
+        default: "",
+      },
+      reason: {
+        type: String,
+        default: "",
+      },
+      message: {
+        type: String,
+        default: "",
+      },
+      status: {
+        type: String,
+        enum: ["none", "pending", "accepted", "refused"],
+        default: "none",
+      },
+      createdAt: {
+        type: Date,
+        default: null,
+      },
+      adminReply: {
+        type: String,
+        default: "",
+      },
+    },
+
+    sellerMessages: [
+      {
+        from: {
+          type: String,
+          enum: ["client", "admin"],
+          default: "client",
+        },
+        message: String,
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   { timestamps: true }
 );
