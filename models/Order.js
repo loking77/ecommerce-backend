@@ -106,14 +106,21 @@ const OrderSchema = new mongoose.Schema(
       },
     },
 
-    sellerMessages: [
+    supportMessages: [
       {
-        from: {
+        sender: {
           type: String,
           enum: ["client", "admin"],
           default: "client",
         },
-        message: String,
+        text: {
+          type: String,
+          default: "",
+        },
+        image: {
+          type: String,
+          default: "",
+        },
         createdAt: {
           type: Date,
           default: Date.now,
