@@ -25,6 +25,14 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       return res.status(400).json({ message: "Aucun produit valide dans le panier" });
     }
 
+    const orderItemsForMetadata = validItems.map((item) => ({
+      productId: String(item.productId._id),
+      name: item.productId.name,
+      image: item.productId.image || "",
+      price: Number(item.productId.price || 0),
+      quantity: Number(item.quantity || 1),
+    }));
+
     const line_items = validItems.map((item) => ({
       price_data: {
         currency: "eur",
@@ -63,6 +71,7 @@ router.post("/create-checkout-session", auth, async (req, res) => {
       metadata: {
         userId: String(req.user.id),
         shipping: JSON.stringify(shipping || {}),
+        items: JSON.stringify(orderItemsForMetadata),
       },
     });
 
@@ -89,10 +98,14 @@ router.post("/webhook", async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  console.log("🔥 EVENT TYPE:", event.type);
+
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
 
     try {
+      console.log("🔥 METADATA:", session.metadata);
+
       const existingOrder = await Order.findOne({
         "payment.stripeSessionId": session.id,
       });
@@ -103,32 +116,37 @@ router.post("/webhook", async (req, res) => {
 
       const userId = session.metadata?.userId;
       const shipping = JSON.parse(session.metadata?.shipping || "{}");
+      const itemsFromMetadata = JSON.parse(session.metadata?.items || "[]");
 
       if (!userId) {
         console.log("WEBHOOK ERROR : userId manquant dans metadata");
         return res.json({ received: true });
       }
 
+      let items = itemsFromMetadata;
+
       const cart = await Cart.findOne({ userId }).populate("items.productId");
       const profile = await Profile.findOne({ userId });
 
-      if (!cart || cart.items.length === 0) {
-        console.log("WEBHOOK : panier vide ou introuvable");
+      if ((!items || items.length === 0) && cart && cart.items.length > 0) {
+        const validItems = cart.items.filter((item) => item.productId);
+
+        items = validItems.map((item) => ({
+          productId: item.productId._id,
+          name: item.productId.name,
+          image: item.productId.image || "",
+          price: Number(item.productId.price || 0),
+          quantity: Number(item.quantity || 1),
+        }));
+      }
+
+      if (!items || items.length === 0) {
+        console.log("WEBHOOK : aucun item trouvé pour créer la commande");
         return res.json({ received: true });
       }
 
-      const validItems = cart.items.filter((item) => item.productId);
-
-      const items = validItems.map((item) => ({
-        productId: item.productId._id,
-        name: item.productId.name,
-        image: item.productId.image,
-        price: Number(item.productId.price || 0),
-        quantity: item.quantity,
-      }));
-
       const subtotal = items.reduce(
-        (sum, item) => sum + item.price * item.quantity,
+        (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
         0
       );
 
@@ -170,14 +188,16 @@ router.post("/webhook", async (req, res) => {
       for (const item of items) {
         await Product.findByIdAndUpdate(item.productId, {
           $inc: {
-            sold: item.quantity,
-            stock: -item.quantity,
+            sold: Number(item.quantity || 1),
+            stock: -Number(item.quantity || 1),
           },
         });
       }
 
-      cart.items = [];
-      await cart.save();
+      if (cart) {
+        cart.items = [];
+        await cart.save();
+      }
 
       console.log("COMMANDE CRÉÉE APRÈS PAIEMENT ✅");
     } catch (err) {
