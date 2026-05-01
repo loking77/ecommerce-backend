@@ -48,12 +48,9 @@ app.use(
   })
 );
 
-/* ---------------- 🔥 WEBHOOK STRIPE AVANT JSON ---------------- */
+/* ---------------- STRIPE WEBHOOK AVANT JSON ---------------- */
 
-app.use(
-  "/payment/webhook",
-  express.raw({ type: "application/json" })
-);
+app.use("/payment/webhook", express.raw({ type: "application/json" }));
 
 /* ---------------- MIDDLEWARE ---------------- */
 
@@ -97,6 +94,8 @@ const Product = require("./models/Product");
 const Review = require("./models/Review");
 const UserActivity = require("./models/UserActivity");
 
+/* ---------------- DEBUG TEMPORAIRE ---------------- */
+
 const OrderDebug = require("./models/Order");
 console.log("🔥 ORDER SHIPPING SCHEMA :", OrderDebug.schema.obj.shipping);
 
@@ -125,6 +124,7 @@ const uploadToCloudinary = (buffer) => {
         resolve(result.secure_url);
       }
     );
+
     streamifier.createReadStream(buffer).pipe(stream);
   });
 };
@@ -147,6 +147,7 @@ app.patch("/products/:id/view", async (req, res) => {
       { $inc: { views: 1 } },
       { returnDocument: "after" }
     );
+
     res.json(product);
   } catch {
     res.status(500).json({ message: "Erreur vue" });
@@ -207,10 +208,7 @@ app.get("/activity/recommendations", auth, async (req, res) => {
     const categories = activities.map((a) => a.category).filter(Boolean);
 
     const recos = await Product.find({
-      $or: [
-        { brand: { $in: brands } },
-        { category: { $in: categories } },
-      ],
+      $or: [{ brand: { $in: brands } }, { category: { $in: categories } }],
     }).limit(8);
 
     res.json(recos);
