@@ -97,6 +97,9 @@ const Product = require("./models/Product");
 const Review = require("./models/Review");
 const UserActivity = require("./models/UserActivity");
 
+const OrderDebug = require("./models/Order");
+console.log("🔥 ORDER SHIPPING SCHEMA :", OrderDebug.schema.obj.shipping);
+
 /* ---------------- MULTER ---------------- */
 
 const storage = multer.memoryStorage();
