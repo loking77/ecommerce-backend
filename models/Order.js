@@ -21,27 +21,45 @@ const OrderSchema = new mongoose.Schema(
       },
     ],
 
-    subtotal: Number,
+    subtotal: {
+      type: Number,
+      default: 0,
+    },
 
     shipping: {
-      carrier: String,
-      service: String,
-      price: Number,
-      delay: String,
-      type: String,
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
 
     tracking: {
-      number: String,
-      url: String,
-      shippedAt: Date,
+      number: {
+        type: String,
+        default: "",
+      },
+      url: {
+        type: String,
+        default: "",
+      },
+      shippedAt: {
+        type: Date,
+        default: null,
+      },
     },
 
-    total: Number,
+    total: {
+      type: Number,
+      default: 0,
+    },
 
     payment: {
-      stripeSessionId: String,
-      status: String,
+      stripeSessionId: {
+        type: String,
+        default: "",
+      },
+      status: {
+        type: String,
+        default: "",
+      },
     },
 
     delivery: {
