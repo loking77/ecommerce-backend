@@ -9,6 +9,7 @@ const Cart = require("../models/Cart");
 const Profile = require("../models/Profile");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
+const sendMail = require("../utils/mailer");
 
 const router = express.Router();
 
@@ -101,6 +102,24 @@ router.post("/", auth, async (req, res) => {
     cart.items = [];
     await cart.save();
 
+    const user = await User.findById(req.user.id);
+
+    await sendMail({
+      to: user?.email,
+      subject: "✅ Commande confirmée - TA SHOP DU 78",
+      html: `
+        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+            <h1 style="color:#4f46e5">Commande confirmée ✅</h1>
+            <p>Merci pour ta commande chez <strong>TA SHOP DU 78</strong>.</p>
+            <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+            <p><strong>Total :</strong> ${formatPrice(order.total)} €</p>
+            <p>Ta facture est disponible dans ton espace client.</p>
+          </div>
+        </div>
+      `,
+    });
+
     res.json({ message: "Commande créée", order });
   } catch (err) {
     console.log("ERREUR COMMANDE :", err);
@@ -166,11 +185,7 @@ router.get("/:id/invoice", auth, async (req, res) => {
     doc.circle(pageWidth - 110, 80, 95).fillOpacity(0.32).fill(pink);
     doc.fillOpacity(1);
 
-    doc
-      .fillColor("#ffffff")
-      .fontSize(26)
-      .font("Helvetica-Bold")
-      .text("TA SHOP DU 78", 80, 78);
+    doc.fillColor("#ffffff").fontSize(26).font("Helvetica-Bold").text("TA SHOP DU 78", 80, 78);
 
     doc
       .fontSize(10)
@@ -196,11 +211,7 @@ router.get("/:id/invoice", auth, async (req, res) => {
 
     doc.roundedRect(55, 175, 230, 125, 18).fill(light);
 
-    doc
-      .fillColor(dark)
-      .fontSize(13)
-      .font("Helvetica-Bold")
-      .text("Client", 75, 195);
+    doc.fillColor(dark).fontSize(13).font("Helvetica-Bold").text("Client", 75, 195);
 
     doc
       .fontSize(10)
@@ -219,11 +230,7 @@ router.get("/:id/invoice", auth, async (req, res) => {
 
     doc.roundedRect(310, 175, 230, 125, 18).fill(light);
 
-    doc
-      .fillColor(dark)
-      .fontSize(13)
-      .font("Helvetica-Bold")
-      .text("Commande", 330, 195);
+    doc.fillColor(dark).fontSize(13).font("Helvetica-Bold").text("Commande", 330, 195);
 
     doc
       .fontSize(10)
@@ -238,11 +245,7 @@ router.get("/:id/invoice", auth, async (req, res) => {
     const tableX = 55;
     let y = 340;
 
-    doc
-      .fillColor(dark)
-      .fontSize(16)
-      .font("Helvetica-Bold")
-      .text("Details de la commande", tableX, y);
+    doc.fillColor(dark).fontSize(16).font("Helvetica-Bold").text("Details de la commande", tableX, y);
 
     y += 35;
 
@@ -266,16 +269,11 @@ router.get("/:id/invoice", auth, async (req, res) => {
         .roundedRect(tableX, y - 8, pageWidth - 110, 44, 12)
         .fill(index % 2 === 0 ? "#ffffff" : "#fafafa");
 
-      doc
-        .roundedRect(tableX, y - 8, pageWidth - 110, 44, 12)
-        .strokeColor(border)
-        .stroke();
+      doc.roundedRect(tableX, y - 8, pageWidth - 110, 44, 12).strokeColor(border).stroke();
 
-      doc
-        .fillColor(dark)
-        .fontSize(10)
-        .font("Helvetica-Bold")
-        .text(item.name || "Produit", tableX + 18, y, { width: 240 });
+      doc.fillColor(dark).fontSize(10).font("Helvetica-Bold").text(item.name || "Produit", tableX + 18, y, {
+        width: 240,
+      });
 
       doc
         .font("Helvetica")
@@ -301,12 +299,10 @@ router.get("/:id/invoice", auth, async (req, res) => {
         align: "right",
       });
 
-    doc
-      .text("Livraison", 335, y + 45)
-      .text(`${formatPrice(order.shipping?.price)} EUR`, 440, y + 45, {
-        width: 80,
-        align: "right",
-      });
+    doc.text("Livraison", 335, y + 45).text(`${formatPrice(order.shipping?.price)} EUR`, 440, y + 45, {
+      width: 80,
+      align: "right",
+    });
 
     doc.moveTo(335, y + 72).lineTo(520, y + 72).strokeColor(border).stroke();
 
@@ -417,6 +413,25 @@ router.post("/:id/request", auth, async (req, res) => {
 
     await order.save();
 
+    const orderFull = await Order.findById(order._id).populate("userId", "name email");
+
+    await sendMail({
+      to: process.env.MAIL_USER,
+      subject: "💬 Nouvelle demande SAV - TA SHOP DU 78",
+      html: `
+        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+            <h2 style="color:#ec4899">Nouvelle demande client 💬</h2>
+            <p><strong>Client :</strong> ${orderFull.userId?.email}</p>
+            <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+            <p><strong>Type :</strong> ${type}</p>
+            <p><strong>Raison :</strong> ${reason}</p>
+            <p><strong>Message :</strong> ${message}</p>
+          </div>
+        </div>
+      `,
+    });
+
     res.json({ message: "Demande envoyée au vendeur", order });
   } catch (err) {
     console.log("ERREUR DEMANDE CLIENT :", err.message);
@@ -444,20 +459,43 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
         ? { _id: req.params.id }
         : { _id: req.params.id, userId: req.user.id };
 
-    const order = await Order.findOne(query);
+    const order = await Order.findOne(query).populate("userId", "name email");
 
     if (!order) {
       return res.status(404).json({ message: "Commande introuvable" });
     }
 
+    const sender = req.user.role === "admin" ? "admin" : "client";
+
     order.supportMessages.push({
-      sender: req.user.role === "admin" ? "admin" : "client",
+      sender,
       text: text || "",
       image: imageUrl,
       createdAt: new Date(),
     });
 
     await order.save();
+
+    const recipient =
+      sender === "admin" ? order.userId?.email : process.env.MAIL_USER;
+
+    await sendMail({
+      to: recipient,
+      subject:
+        sender === "admin"
+          ? "💬 Nouveau message du vendeur - TA SHOP DU 78"
+          : "💬 Nouveau message client - TA SHOP DU 78",
+      html: `
+        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+            <h2 style="color:#4f46e5">Nouveau message SAV 💬</h2>
+            <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+            <p>${text || "Image envoyée en pièce SAV."}</p>
+            ${imageUrl ? `<p><a href="${imageUrl}">Voir l'image envoyée</a></p>` : ""}
+          </div>
+        </div>
+      `,
+    });
 
     res.json({ message: "Message envoyé", order });
   } catch (err) {
@@ -498,10 +536,48 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
 
     const order = await Order.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
-    });
+    }).populate("userId", "name email");
+
+    if (status === "Expédiée") {
+      await sendMail({
+        to: order.userId?.email,
+        subject: "📦 Ta commande a été expédiée - TA SHOP DU 78",
+        html: `
+          <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+            <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+              <h2 style="color:#4f46e5">Commande expédiée 📦</h2>
+              <p>Ta commande #${order._id.toString().slice(-6).toUpperCase()} a été expédiée.</p>
+              <p><strong>Numéro de suivi :</strong> ${trackingNumber || "Non renseigné"}</p>
+              ${
+                trackingUrl
+                  ? `<p><a href="${trackingUrl}">Suivre mon colis</a></p>`
+                  : ""
+              }
+            </div>
+          </div>
+        `,
+      });
+    }
+
+    if (status === "Livrée") {
+      await sendMail({
+        to: order.userId?.email,
+        subject: "✅ Ta commande est livrée - TA SHOP DU 78",
+        html: `
+          <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+            <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+              <h2 style="color:#22c55e">Commande livrée ✅</h2>
+              <p>Ta commande #${order._id.toString().slice(-6).toUpperCase()} est indiquée comme livrée.</p>
+              <p>Merci pour ta confiance.</p>
+            </div>
+          </div>
+        `,
+      });
+    }
 
     res.json(order);
   } catch (err) {
+    console.log("ERREUR STATUS :", err.message);
     res.status(500).json({ message: "Erreur changement statut" });
   }
 });
@@ -523,7 +599,26 @@ router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
         status: "Expédiée",
       },
       { new: true }
-    );
+    ).populate("userId", "name email");
+
+    await sendMail({
+      to: order.userId?.email,
+      subject: "📦 Suivi de ta commande - TA SHOP DU 78",
+      html: `
+        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+            <h2 style="color:#4f46e5">Suivi colis 📦</h2>
+            <p>Ta commande #${order._id.toString().slice(-6).toUpperCase()} est expédiée.</p>
+            <p><strong>Numéro de suivi :</strong> ${trackingNumber || "Non renseigné"}</p>
+            ${
+              trackingUrl
+                ? `<p><a href="${trackingUrl}">Suivre mon colis</a></p>`
+                : ""
+            }
+          </div>
+        </div>
+      `,
+    });
 
     res.json(order);
   } catch (err) {
@@ -541,7 +636,7 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
       return res.status(400).json({ message: "Décision invalide" });
     }
 
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id).populate("userId", "name email");
 
     if (!order) {
       return res.status(404).json({ message: "Commande introuvable" });
@@ -564,6 +659,22 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
     }
 
     await order.save();
+
+    await sendMail({
+      to: order.userId?.email,
+      subject: "📢 Mise à jour de ta demande - TA SHOP DU 78",
+      html: `
+        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
+          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
+            <h2 style="color:${decision === "accepted" ? "#22c55e" : "#ef4444"}">
+              Demande ${decision === "accepted" ? "acceptée ✅" : "refusée ❌"}
+            </h2>
+            <p>Commande #${order._id.toString().slice(-6).toUpperCase()}</p>
+            <p>${adminReply || ""}</p>
+          </div>
+        </div>
+      `,
+    });
 
     res.json({ message: "Réponse envoyée au client", order });
   } catch (err) {
