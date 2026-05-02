@@ -12,8 +12,6 @@ const auth = require("../middleware/auth");
 
 const router = express.Router();
 
-/* ---------------- MULTER + CLOUDINARY SAV ---------------- */
-
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
@@ -30,8 +28,6 @@ const uploadSupportImageToCloudinary = (buffer) => {
     streamifier.createReadStream(buffer).pipe(stream);
   });
 };
-
-/* ---------------- ADMIN ONLY ---------------- */
 
 const adminOnly = (req, res, next) => {
   if (req.user.role !== "admin") {
@@ -80,7 +76,11 @@ router.post("/", auth, async (req, res) => {
       items,
       subtotal,
       shipping: selectedShipping,
-      tracking: { number: "", url: "", shippedAt: null },
+      tracking: {
+        number: "",
+        url: "",
+        shippedAt: null,
+      },
       total,
       status: "En attente",
       delivery: profile
@@ -119,7 +119,7 @@ router.get("/my", auth, async (req, res) => {
   }
 });
 
-/* ---------------- FACTURE PDF ---------------- */
+/* ---------------- FACTURE PDF PREMIUM ---------------- */
 
 router.get("/:id/invoice", auth, async (req, res) => {
   try {
@@ -134,7 +134,7 @@ router.get("/:id/invoice", auth, async (req, res) => {
       return res.status(404).json({ message: "Commande introuvable" });
     }
 
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ margin: 0, size: "A4" });
 
     const invoiceNumber = `FACT-${order._id.toString().slice(-8).toUpperCase()}`;
     const fileName = `facture-${order._id.toString().slice(-6)}.pdf`;
@@ -144,134 +144,222 @@ router.get("/:id/invoice", auth, async (req, res) => {
 
     doc.pipe(res);
 
-    doc
-      .fontSize(24)
-      .fillColor("#111827")
-      .text("TA SHOP DU 78", { align: "left" });
+    const pageWidth = doc.page.width;
+    const pageHeight = doc.page.height;
+
+    const purple = "#4f46e5";
+    const pink = "#ec4899";
+    const dark = "#111827";
+    const grey = "#6b7280";
+    const light = "#f8fafc";
+    const border = "#e5e7eb";
+
+    doc.rect(0, 0, pageWidth, pageHeight).fill("#f3f4ff");
+    doc.circle(80, 80, 180).fillOpacity(0.22).fill("#c7d2fe");
+    doc.circle(pageWidth - 70, 110, 170).fillOpacity(0.18).fill("#f9a8d4");
+    doc.circle(pageWidth - 60, pageHeight - 80, 220).fillOpacity(0.18).fill("#bfdbfe");
+    doc.fillOpacity(1);
+
+    doc.roundedRect(35, 35, pageWidth - 70, pageHeight - 70, 28).fill("#ffffff");
+
+    doc.roundedRect(55, 55, pageWidth - 110, 95, 22).fill(purple);
+    doc.circle(pageWidth - 110, 80, 95).fillOpacity(0.32).fill(pink);
+    doc.fillOpacity(1);
 
     doc
-      .fontSize(10)
-      .fillColor("#6b7280")
-      .text("Streetwear, sneakers et bons plans.")
-      .moveDown(2);
-
-    doc
-      .fontSize(18)
-      .fillColor("#4f46e5")
-      .text("FACTURE", { align: "right" });
-
-    doc
-      .fontSize(10)
-      .fillColor("#111827")
-      .text(`Numéro : ${invoiceNumber}`, { align: "right" })
-      .text(`Date : ${new Date(order.createdAt).toLocaleDateString("fr-FR")}`, {
-        align: "right",
-      })
-      .moveDown(2);
-
-    doc
-      .fontSize(12)
-      .fillColor("#111827")
-      .text("Client", { underline: true })
-      .moveDown(0.5);
+      .fillColor("#ffffff")
+      .fontSize(26)
+      .font("Helvetica-Bold")
+      .text("TA SHOP DU 78", 80, 78);
 
     doc
       .fontSize(10)
-      .fillColor("#374151")
-      .text(order.userId?.name || `${order.delivery?.firstName || ""} ${order.delivery?.lastName || ""}`)
-      .text(order.userId?.email || "Email non renseigné")
-      .text(order.delivery?.address || "")
-      .text(`${order.delivery?.postalCode || ""} ${order.delivery?.city || ""}`)
-      .text(order.delivery?.country || "")
-      .moveDown(2);
+      .font("Helvetica")
+      .fillColor("#eef2ff")
+      .text("Streetwear, sneakers et bons plans.", 82, 112);
 
     doc
-      .fontSize(12)
-      .fillColor("#111827")
-      .text("Détails de la commande", { underline: true })
-      .moveDown(1);
-
-    const tableTop = doc.y;
-    const itemX = 50;
-    const qtyX = 310;
-    const priceX = 380;
-    const totalX = 470;
-
-    doc
-      .fontSize(10)
-      .fillColor("#111827")
-      .text("Produit", itemX, tableTop)
-      .text("Qté", qtyX, tableTop)
-      .text("Prix", priceX, tableTop)
-      .text("Total", totalX, tableTop);
-
-    doc
-      .moveTo(50, tableTop + 18)
-      .lineTo(550, tableTop + 18)
-      .strokeColor("#e5e7eb")
-      .stroke();
-
-    let y = tableTop + 32;
-
-    order.items.forEach((item) => {
-      const lineTotal = Number(item.price || 0) * Number(item.quantity || 1);
-
-      doc
-        .fontSize(10)
-        .fillColor("#374151")
-        .text(item.name || "Produit", itemX, y, { width: 240 })
-        .text(String(item.quantity || 1), qtyX, y)
-        .text(`${formatPrice(item.price)} EUR`, priceX, y)
-        .text(`${formatPrice(lineTotal)} EUR`, totalX, y);
-
-      y += 28;
-    });
-
-    doc
-      .moveTo(50, y)
-      .lineTo(550, y)
-      .strokeColor("#e5e7eb")
-      .stroke();
-
-    y += 20;
-
-    doc
-      .fontSize(10)
-      .fillColor("#111827")
-      .text(`Sous-total : ${formatPrice(order.subtotal)} EUR`, 370, y, {
-        align: "right",
-      });
-
-    y += 18;
-
-    doc.text(`Livraison : ${formatPrice(order.shipping?.price)} EUR`, 370, y, {
-      align: "right",
-    });
-
-    y += 24;
-
-    doc
-      .fontSize(14)
-      .fillColor("#4f46e5")
-      .text(`Total payé : ${formatPrice(order.total)} EUR`, 370, y, {
-        align: "right",
-      });
-
-    doc.moveDown(3);
-
-    doc
-      .fontSize(10)
-      .fillColor("#6b7280")
-      .text(`Mode de livraison : ${order.shipping?.carrier || "Non défini"} - ${order.shipping?.service || ""}`)
-      .text(`Statut : ${order.status || "En attente"}`)
-      .moveDown(2);
+      .fontSize(22)
+      .font("Helvetica-Bold")
+      .fillColor("#ffffff")
+      .text("FACTURE", 380, 76, { width: 130, align: "right" });
 
     doc
       .fontSize(9)
-      .fillColor("#9ca3af")
-      .text("Merci pour ta commande chez TA SHOP DU 78.", {
+      .font("Helvetica")
+      .fillColor("#eef2ff")
+      .text(`Numero : ${invoiceNumber}`, 330, 106, { width: 180, align: "right" })
+      .text(`Date : ${new Date(order.createdAt).toLocaleDateString("fr-FR")}`, 330, 121, {
+        width: 180,
+        align: "right",
+      });
+
+    doc.roundedRect(55, 175, 230, 125, 18).fill(light);
+
+    doc
+      .fillColor(dark)
+      .fontSize(13)
+      .font("Helvetica-Bold")
+      .text("Client", 75, 195);
+
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor(grey)
+      .text(
+        order.userId?.name ||
+          `${order.delivery?.firstName || ""} ${order.delivery?.lastName || ""}`,
+        75,
+        220
+      )
+      .text(order.userId?.email || "Email non renseigne", 75, 236)
+      .text(order.delivery?.address || "", 75, 252)
+      .text(`${order.delivery?.postalCode || ""} ${order.delivery?.city || ""}`, 75, 268)
+      .text(order.delivery?.country || "France", 75, 284);
+
+    doc.roundedRect(310, 175, 230, 125, 18).fill(light);
+
+    doc
+      .fillColor(dark)
+      .fontSize(13)
+      .font("Helvetica-Bold")
+      .text("Commande", 330, 195);
+
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor(grey)
+      .text(`Reference : #${order._id.toString().slice(-6).toUpperCase()}`, 330, 220)
+      .text(`Statut : ${order.status || "En attente"}`, 330, 236)
+      .text(`Paiement : ${order.payment?.status || "paid"}`, 330, 252)
+      .text(`Livraison : ${order.shipping?.carrier || "Non defini"}`, 330, 268)
+      .text(`${order.shipping?.service || ""}`, 330, 284);
+
+    const tableX = 55;
+    let y = 340;
+
+    doc
+      .fillColor(dark)
+      .fontSize(16)
+      .font("Helvetica-Bold")
+      .text("Details de la commande", tableX, y);
+
+    y += 35;
+
+    doc.roundedRect(tableX, y, pageWidth - 110, 38, 14).fill("#eef2ff");
+
+    doc
+      .fillColor(purple)
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .text("Produit", tableX + 18, y + 13)
+      .text("Qte", 330, y + 13)
+      .text("Prix", 390, y + 13)
+      .text("Total", 470, y + 13);
+
+    y += 50;
+
+    order.items.forEach((item, index) => {
+      const lineTotal = Number(item.price || 0) * Number(item.quantity || 1);
+
+      doc
+        .roundedRect(tableX, y - 8, pageWidth - 110, 44, 12)
+        .fill(index % 2 === 0 ? "#ffffff" : "#fafafa");
+
+      doc
+        .roundedRect(tableX, y - 8, pageWidth - 110, 44, 12)
+        .strokeColor(border)
+        .stroke();
+
+      doc
+        .fillColor(dark)
+        .fontSize(10)
+        .font("Helvetica-Bold")
+        .text(item.name || "Produit", tableX + 18, y, { width: 240 });
+
+      doc
+        .font("Helvetica")
+        .fillColor(grey)
+        .text(String(item.quantity || 1), 330, y)
+        .text(`${formatPrice(item.price)} EUR`, 390, y)
+        .text(`${formatPrice(lineTotal)} EUR`, 470, y);
+
+      y += 52;
+    });
+
+    y += 15;
+
+    doc.roundedRect(315, y, 225, 125, 20).fill("#f8fafc");
+
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor(grey)
+      .text("Sous-total", 335, y + 22)
+      .text(`${formatPrice(order.subtotal)} EUR`, 440, y + 22, {
+        width: 80,
+        align: "right",
+      });
+
+    doc
+      .text("Livraison", 335, y + 45)
+      .text(`${formatPrice(order.shipping?.price)} EUR`, 440, y + 45, {
+        width: 80,
+        align: "right",
+      });
+
+    doc.moveTo(335, y + 72).lineTo(520, y + 72).strokeColor(border).stroke();
+
+    doc
+      .fontSize(15)
+      .font("Helvetica-Bold")
+      .fillColor(purple)
+      .text("Total paye", 335, y + 88)
+      .text(`${formatPrice(order.total)} EUR`, 420, y + 88, {
+        width: 100,
+        align: "right",
+      });
+
+    doc
+      .fontSize(9)
+      .font("Helvetica")
+      .fillColor(grey)
+      .text(
+        `Mode de livraison : ${order.shipping?.carrier || "Non defini"} - ${
+          order.shipping?.service || ""
+        }`,
+        55,
+        y + 25,
+        { width: 230 }
+      )
+      .text(`Delai : ${order.shipping?.delay || "Non defini"}`, 55, y + 43, {
+        width: 230,
+      });
+
+    doc.roundedRect(55, pageHeight - 105, pageWidth - 110, 50, 18).fill("#111827");
+
+    doc
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .fillColor("#ffffff")
+      .text("Merci pour ta commande chez TA SHOP DU 78.", 75, pageHeight - 87, {
+        width: pageWidth - 150,
         align: "center",
       });
+
+    doc
+      .fontSize(8)
+      .font("Helvetica")
+      .fillColor("#c7d2fe")
+      .text(
+        "Facture generee automatiquement - conserve ce document comme justificatif d'achat.",
+        75,
+        pageHeight - 70,
+        {
+          width: pageWidth - 150,
+          align: "center",
+        }
+      );
 
     doc.end();
   } catch (err) {
@@ -285,6 +373,7 @@ router.get("/:id/invoice", auth, async (req, res) => {
 router.post("/:id/request", auth, async (req, res) => {
   try {
     const { type, reason, message } = req.body;
+
     const allowedTypes = ["cancel", "refund", "return"];
 
     if (!allowedTypes.includes(type)) {
@@ -295,7 +384,10 @@ router.post("/:id/request", auth, async (req, res) => {
       return res.status(400).json({ message: "Raison et message obligatoires" });
     }
 
-    const order = await Order.findOne({ _id: req.params.id, userId: req.user.id });
+    const order = await Order.findOne({
+      _id: req.params.id,
+      userId: req.user.id,
+    });
 
     if (!order) {
       return res.status(404).json({ message: "Commande introuvable" });
