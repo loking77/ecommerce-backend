@@ -25,6 +25,7 @@
     "nodemailer": "^8.0.6",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
+    "pdfkit": "^0.18.0",
     "streamifier": "^0.1.1",
     "stripe": "^22.1.0"
   }

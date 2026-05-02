@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const streamifier = require("streamifier");
+const PDFDocument = require("pdfkit");
 
 const Order = require("../models/Order");
 const Cart = require("../models/Cart");
@@ -39,13 +40,13 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
+const formatPrice = (price) => Number(price || 0).toFixed(2).replace(".", ",");
+
 /* ---------------- CRÉER COMMANDE MANUELLE ---------------- */
 
 router.post("/", auth, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ userId: req.user.id }).populate(
-      "items.productId"
-    );
+    const cart = await Cart.findOne({ userId: req.user.id }).populate("items.productId");
 
     if (!cart || cart.items.length === 0) {
       return res.status(400).json({ message: "Panier vide" });
@@ -61,10 +62,7 @@ router.post("/", auth, async (req, res) => {
       quantity: item.quantity,
     }));
 
-    const subtotal = items.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0
-    );
+    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
     const selectedShipping = req.body.shipping || {
       carrier: "Standard",
@@ -75,7 +73,6 @@ router.post("/", auth, async (req, res) => {
     };
 
     const total = subtotal + Number(selectedShipping.price || 0);
-
     const profile = await Profile.findOne({ userId: req.user.id });
 
     const order = new Order({
@@ -83,11 +80,7 @@ router.post("/", auth, async (req, res) => {
       items,
       subtotal,
       shipping: selectedShipping,
-      tracking: {
-        number: "",
-        url: "",
-        shippedAt: null,
-      },
+      tracking: { number: "", url: "", shippedAt: null },
       total,
       status: "En attente",
       delivery: profile
@@ -119,22 +112,179 @@ router.post("/", auth, async (req, res) => {
 
 router.get("/my", auth, async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.user.id }).sort({
-      createdAt: -1,
-    });
-
+    const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: "Erreur chargement commandes" });
   }
 });
 
-/* ---------------- DEMANDE CLIENT : ANNULATION / RETOUR / REMBOURSEMENT ---------------- */
+/* ---------------- FACTURE PDF ---------------- */
+
+router.get("/:id/invoice", auth, async (req, res) => {
+  try {
+    const query =
+      req.user.role === "admin"
+        ? { _id: req.params.id }
+        : { _id: req.params.id, userId: req.user.id };
+
+    const order = await Order.findOne(query).populate("userId", "name email");
+
+    if (!order) {
+      return res.status(404).json({ message: "Commande introuvable" });
+    }
+
+    const doc = new PDFDocument({ margin: 50 });
+
+    const invoiceNumber = `FACT-${order._id.toString().slice(-8).toUpperCase()}`;
+    const fileName = `facture-${order._id.toString().slice(-6)}.pdf`;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+
+    doc.pipe(res);
+
+    doc
+      .fontSize(24)
+      .fillColor("#111827")
+      .text("TA SHOP DU 78", { align: "left" });
+
+    doc
+      .fontSize(10)
+      .fillColor("#6b7280")
+      .text("Streetwear, sneakers et bons plans.")
+      .moveDown(2);
+
+    doc
+      .fontSize(18)
+      .fillColor("#4f46e5")
+      .text("FACTURE", { align: "right" });
+
+    doc
+      .fontSize(10)
+      .fillColor("#111827")
+      .text(`Numéro : ${invoiceNumber}`, { align: "right" })
+      .text(`Date : ${new Date(order.createdAt).toLocaleDateString("fr-FR")}`, {
+        align: "right",
+      })
+      .moveDown(2);
+
+    doc
+      .fontSize(12)
+      .fillColor("#111827")
+      .text("Client", { underline: true })
+      .moveDown(0.5);
+
+    doc
+      .fontSize(10)
+      .fillColor("#374151")
+      .text(order.userId?.name || `${order.delivery?.firstName || ""} ${order.delivery?.lastName || ""}`)
+      .text(order.userId?.email || "Email non renseigné")
+      .text(order.delivery?.address || "")
+      .text(`${order.delivery?.postalCode || ""} ${order.delivery?.city || ""}`)
+      .text(order.delivery?.country || "")
+      .moveDown(2);
+
+    doc
+      .fontSize(12)
+      .fillColor("#111827")
+      .text("Détails de la commande", { underline: true })
+      .moveDown(1);
+
+    const tableTop = doc.y;
+    const itemX = 50;
+    const qtyX = 310;
+    const priceX = 380;
+    const totalX = 470;
+
+    doc
+      .fontSize(10)
+      .fillColor("#111827")
+      .text("Produit", itemX, tableTop)
+      .text("Qté", qtyX, tableTop)
+      .text("Prix", priceX, tableTop)
+      .text("Total", totalX, tableTop);
+
+    doc
+      .moveTo(50, tableTop + 18)
+      .lineTo(550, tableTop + 18)
+      .strokeColor("#e5e7eb")
+      .stroke();
+
+    let y = tableTop + 32;
+
+    order.items.forEach((item) => {
+      const lineTotal = Number(item.price || 0) * Number(item.quantity || 1);
+
+      doc
+        .fontSize(10)
+        .fillColor("#374151")
+        .text(item.name || "Produit", itemX, y, { width: 240 })
+        .text(String(item.quantity || 1), qtyX, y)
+        .text(`${formatPrice(item.price)} EUR`, priceX, y)
+        .text(`${formatPrice(lineTotal)} EUR`, totalX, y);
+
+      y += 28;
+    });
+
+    doc
+      .moveTo(50, y)
+      .lineTo(550, y)
+      .strokeColor("#e5e7eb")
+      .stroke();
+
+    y += 20;
+
+    doc
+      .fontSize(10)
+      .fillColor("#111827")
+      .text(`Sous-total : ${formatPrice(order.subtotal)} EUR`, 370, y, {
+        align: "right",
+      });
+
+    y += 18;
+
+    doc.text(`Livraison : ${formatPrice(order.shipping?.price)} EUR`, 370, y, {
+      align: "right",
+    });
+
+    y += 24;
+
+    doc
+      .fontSize(14)
+      .fillColor("#4f46e5")
+      .text(`Total payé : ${formatPrice(order.total)} EUR`, 370, y, {
+        align: "right",
+      });
+
+    doc.moveDown(3);
+
+    doc
+      .fontSize(10)
+      .fillColor("#6b7280")
+      .text(`Mode de livraison : ${order.shipping?.carrier || "Non défini"} - ${order.shipping?.service || ""}`)
+      .text(`Statut : ${order.status || "En attente"}`)
+      .moveDown(2);
+
+    doc
+      .fontSize(9)
+      .fillColor("#9ca3af")
+      .text("Merci pour ta commande chez TA SHOP DU 78.", {
+        align: "center",
+      });
+
+    doc.end();
+  } catch (err) {
+    console.log("ERREUR FACTURE :", err.message);
+    res.status(500).json({ message: "Erreur génération facture" });
+  }
+});
+
+/* ---------------- DEMANDE CLIENT ---------------- */
 
 router.post("/:id/request", auth, async (req, res) => {
   try {
     const { type, reason, message } = req.body;
-
     const allowedTypes = ["cancel", "refund", "return"];
 
     if (!allowedTypes.includes(type)) {
@@ -142,15 +292,10 @@ router.post("/:id/request", auth, async (req, res) => {
     }
 
     if (!reason || !message) {
-      return res
-        .status(400)
-        .json({ message: "Raison et message obligatoires" });
+      return res.status(400).json({ message: "Raison et message obligatoires" });
     }
 
-    const order = await Order.findOne({
-      _id: req.params.id,
-      userId: req.user.id,
-    });
+    const order = await Order.findOne({ _id: req.params.id, userId: req.user.id });
 
     if (!order) {
       return res.status(404).json({ message: "Commande introuvable" });
@@ -180,68 +325,56 @@ router.post("/:id/request", auth, async (req, res) => {
 
     await order.save();
 
-    res.json({
-      message: "Demande envoyée au vendeur",
-      order,
-    });
+    res.json({ message: "Demande envoyée au vendeur", order });
   } catch (err) {
     console.log("ERREUR DEMANDE CLIENT :", err.message);
     res.status(500).json({ message: "Erreur demande client" });
   }
 });
 
-/* ---------------- MESSAGE SAV CLIENT OU ADMIN AVEC IMAGE ---------------- */
+/* ---------------- MESSAGE SAV AVEC IMAGE ---------------- */
 
-router.post(
-  "/:id/support-message",
-  auth,
-  upload.single("image"),
-  async (req, res) => {
-    try {
-      const { text } = req.body;
+router.post("/:id/support-message", auth, upload.single("image"), async (req, res) => {
+  try {
+    const { text } = req.body;
+    let imageUrl = "";
 
-      let imageUrl = "";
-
-      if (req.file) {
-        imageUrl = await uploadSupportImageToCloudinary(req.file.buffer);
-      }
-
-      if (!text && !imageUrl) {
-        return res.status(400).json({ message: "Message ou image obligatoire" });
-      }
-
-      const query =
-        req.user.role === "admin"
-          ? { _id: req.params.id }
-          : { _id: req.params.id, userId: req.user.id };
-
-      const order = await Order.findOne(query);
-
-      if (!order) {
-        return res.status(404).json({ message: "Commande introuvable" });
-      }
-
-      order.supportMessages.push({
-        sender: req.user.role === "admin" ? "admin" : "client",
-        text: text || "",
-        image: imageUrl,
-        createdAt: new Date(),
-      });
-
-      await order.save();
-
-      res.json({
-        message: "Message envoyé",
-        order,
-      });
-    } catch (err) {
-      console.log("ERREUR MESSAGE SAV :", err.message);
-      res.status(500).json({ message: "Erreur message SAV" });
+    if (req.file) {
+      imageUrl = await uploadSupportImageToCloudinary(req.file.buffer);
     }
-  }
-);
 
-/* ---------------- TOUTES LES COMMANDES ADMIN ---------------- */
+    if (!text && !imageUrl) {
+      return res.status(400).json({ message: "Message ou image obligatoire" });
+    }
+
+    const query =
+      req.user.role === "admin"
+        ? { _id: req.params.id }
+        : { _id: req.params.id, userId: req.user.id };
+
+    const order = await Order.findOne(query);
+
+    if (!order) {
+      return res.status(404).json({ message: "Commande introuvable" });
+    }
+
+    order.supportMessages.push({
+      sender: req.user.role === "admin" ? "admin" : "client",
+      text: text || "",
+      image: imageUrl,
+      createdAt: new Date(),
+    });
+
+    await order.save();
+
+    res.json({ message: "Message envoyé", order });
+  } catch (err) {
+    console.log("ERREUR MESSAGE SAV :", err.message);
+    res.status(500).json({ message: "Erreur message SAV" });
+  }
+});
+
+/* ---------------- ADMIN COMMANDES ---------------- */
 
 router.get("/", auth, adminOnly, async (req, res) => {
   try {
@@ -255,7 +388,7 @@ router.get("/", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* ---------------- CHANGER STATUT ADMIN ---------------- */
+/* ---------------- ADMIN STATUT ---------------- */
 
 router.patch("/:id/status", auth, adminOnly, async (req, res) => {
   try {
@@ -281,7 +414,7 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* ---------------- TRACKING ADMIN ---------------- */
+/* ---------------- ADMIN TRACKING ---------------- */
 
 router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
   try {
@@ -306,7 +439,7 @@ router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* ---------------- RÉPONSE ADMIN À UNE DEMANDE CLIENT ---------------- */
+/* ---------------- ADMIN RÉPONSE DEMANDE ---------------- */
 
 router.patch("/:id/request", auth, adminOnly, async (req, res) => {
   try {
@@ -340,17 +473,14 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
 
     await order.save();
 
-    res.json({
-      message: "Réponse envoyée au client",
-      order,
-    });
+    res.json({ message: "Réponse envoyée au client", order });
   } catch (err) {
     console.log("ERREUR RÉPONSE ADMIN :", err.message);
     res.status(500).json({ message: "Erreur réponse admin" });
   }
 });
 
-/* ---------------- UTILISATEURS ADMIN ---------------- */
+/* ---------------- ADMIN USERS ---------------- */
 
 router.get("/admin/users", auth, adminOnly, async (req, res) => {
   try {
