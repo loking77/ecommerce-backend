@@ -94,7 +94,7 @@ router.get("/my", auth, async (req, res) => {
   }
 });
 
-/* DEMANDE CLIENT : ANNULATION / RETOUR / REMBOURSEMENT / MESSAGE */
+/* DEMANDE CLIENT : ANNULATION / RETOUR / REMBOURSEMENT */
 router.post("/:id/request", auth, async (req, res) => {
   try {
     const { type, reason, message } = req.body;
@@ -133,9 +133,10 @@ router.post("/:id/request", auth, async (req, res) => {
       adminReply: "",
     };
 
-    order.sellerMessages.push({
-      from: "client",
-      message,
+    order.supportMessages.push({
+      sender: "client",
+      text: message,
+      image: "",
       createdAt: new Date(),
     });
 
@@ -148,6 +149,45 @@ router.post("/:id/request", auth, async (req, res) => {
   } catch (err) {
     console.log("ERREUR DEMANDE CLIENT :", err.message);
     res.status(500).json({ message: "Erreur demande client" });
+  }
+});
+
+/* MESSAGE SAV CLIENT OU ADMIN */
+router.post("/:id/support-message", auth, async (req, res) => {
+  try {
+    const { text, image } = req.body;
+
+    if (!text && !image) {
+      return res.status(400).json({ message: "Message ou image obligatoire" });
+    }
+
+    const query =
+      req.user.role === "admin"
+        ? { _id: req.params.id }
+        : { _id: req.params.id, userId: req.user.id };
+
+    const order = await Order.findOne(query);
+
+    if (!order) {
+      return res.status(404).json({ message: "Commande introuvable" });
+    }
+
+    order.supportMessages.push({
+      sender: req.user.role === "admin" ? "admin" : "client",
+      text: text || "",
+      image: image || "",
+      createdAt: new Date(),
+    });
+
+    await order.save();
+
+    res.json({
+      message: "Message envoyé",
+      order,
+    });
+  } catch (err) {
+    console.log("ERREUR MESSAGE SAV :", err.message);
+    res.status(500).json({ message: "Erreur message SAV" });
   }
 });
 
@@ -231,9 +271,10 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
     order.customerRequest.status = decision;
     order.customerRequest.adminReply = adminReply || "";
 
-    order.sellerMessages.push({
-      from: "admin",
-      message: adminReply || (decision === "accepted" ? "Demande acceptée" : "Demande refusée"),
+    order.supportMessages.push({
+      sender: "admin",
+      text: adminReply || (decision === "accepted" ? "Demande acceptée" : "Demande refusée"),
+      image: "",
       createdAt: new Date(),
     });
 
