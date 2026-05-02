@@ -80,7 +80,6 @@ const OrderSchema = new mongoose.Schema(
     customerRequest: {
       type: {
         type: String,
-        enum: ["", "cancel", "refund", "return"],
         default: "",
       },
       reason: {
@@ -93,16 +92,15 @@ const OrderSchema = new mongoose.Schema(
       },
       status: {
         type: String,
-        enum: ["none", "pending", "accepted", "refused"],
-        default: "none",
-      },
-      createdAt: {
-        type: Date,
-        default: null,
+        default: "",
       },
       adminReply: {
         type: String,
         default: "",
+      },
+      createdAt: {
+        type: Date,
+        default: null,
       },
     },
 
@@ -111,7 +109,7 @@ const OrderSchema = new mongoose.Schema(
         sender: {
           type: String,
           enum: ["client", "admin"],
-          default: "client",
+          required: true,
         },
         text: {
           type: String,
@@ -121,12 +119,43 @@ const OrderSchema = new mongoose.Schema(
           type: String,
           default: "",
         },
+        file: {
+          type: String,
+          default: "",
+        },
+        fileName: {
+          type: String,
+          default: "",
+        },
+        readByClient: {
+          type: Boolean,
+          default: false,
+        },
+        readByAdmin: {
+          type: Boolean,
+          default: false,
+        },
         createdAt: {
           type: Date,
           default: Date.now,
         },
       },
     ],
+
+    unreadClientCount: {
+      type: Number,
+      default: 0,
+    },
+
+    unreadAdminCount: {
+      type: Number,
+      default: 0,
+    },
+
+    lastSupportMessageAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
