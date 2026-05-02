@@ -8,6 +8,8 @@ const helmet = require("helmet");
 const cloudinary = require("cloudinary").v2;
 const streamifier = require("streamifier");
 const passport = require("passport");
+const http = require("http");
+const { Server } = require("socket.io");
 
 require("./config/passport");
 
@@ -28,6 +30,50 @@ const SERVER_URL =
   process.env.SERVER_URL ||
   process.env.BACKEND_URL ||
   `http://localhost:${PORT}`;
+
+/* ---------------- SOCKET.IO SERVER ---------------- */
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: [CLIENT_URL, "http://localhost:3000"],
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+    credentials: true,
+  },
+});
+
+app.set("io", io);
+
+io.on("connection", (socket) => {
+  console.log("🟢 Client connecté socket :", socket.id);
+
+  socket.on("join-order", (orderId) => {
+    if (!orderId) return;
+    socket.join(`order-${orderId}`);
+    console.log(`💬 Socket ${socket.id} rejoint order-${orderId}`);
+  });
+
+  socket.on("leave-order", (orderId) => {
+    if (!orderId) return;
+    socket.leave(`order-${orderId}`);
+    console.log(`🚪 Socket ${socket.id} quitte order-${orderId}`);
+  });
+
+  socket.on("typing", ({ orderId, sender }) => {
+    if (!orderId) return;
+    socket.to(`order-${orderId}`).emit("typing", { orderId, sender });
+  });
+
+  socket.on("stop-typing", ({ orderId, sender }) => {
+    if (!orderId) return;
+    socket.to(`order-${orderId}`).emit("stop-typing", { orderId, sender });
+  });
+
+  socket.on("disconnect", () => {
+    console.log("🔴 Client déconnecté socket :", socket.id);
+  });
+});
 
 const MONGO_URI = process.env.MONGO_URI;
 
@@ -302,6 +348,6 @@ app.get("/", (req, res) => {
 
 /* ---------------- START ---------------- */
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on ${SERVER_URL}`);
 });
