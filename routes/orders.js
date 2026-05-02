@@ -1,4 +1,8 @@
 const express = require("express");
+const multer = require("multer");
+const cloudinary = require("cloudinary").v2;
+const streamifier = require("streamifier");
+
 const Order = require("../models/Order");
 const Cart = require("../models/Cart");
 const Profile = require("../models/Profile");
@@ -7,6 +11,27 @@ const auth = require("../middleware/auth");
 
 const router = express.Router();
 
+/* ---------------- MULTER + CLOUDINARY SAV ---------------- */
+
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+const uploadSupportImageToCloudinary = (buffer) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: "ecommerce/support-messages" },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result.secure_url);
+      }
+    );
+
+    streamifier.createReadStream(buffer).pipe(stream);
+  });
+};
+
+/* ---------------- ADMIN ONLY ---------------- */
+
 const adminOnly = (req, res, next) => {
   if (req.user.role !== "admin") {
     return res.status(403).json({ message: "Admin uniquement" });
@@ -14,10 +39,13 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-/* CRÉER COMMANDE MANUELLE */
+/* ---------------- CRÉER COMMANDE MANUELLE ---------------- */
+
 router.post("/", auth, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ userId: req.user.id }).populate("items.productId");
+    const cart = await Cart.findOne({ userId: req.user.id }).populate(
+      "items.productId"
+    );
 
     if (!cart || cart.items.length === 0) {
       return res.status(400).json({ message: "Panier vide" });
@@ -33,7 +61,10 @@ router.post("/", auth, async (req, res) => {
       quantity: item.quantity,
     }));
 
-    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const subtotal = items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
 
     const selectedShipping = req.body.shipping || {
       carrier: "Standard",
@@ -84,17 +115,22 @@ router.post("/", auth, async (req, res) => {
   }
 });
 
-/* COMMANDES DU CLIENT */
+/* ---------------- COMMANDES DU CLIENT ---------------- */
+
 router.get("/my", auth, async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    const orders = await Order.find({ userId: req.user.id }).sort({
+      createdAt: -1,
+    });
+
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: "Erreur chargement commandes" });
   }
 });
 
-/* DEMANDE CLIENT : ANNULATION / RETOUR / REMBOURSEMENT */
+/* ---------------- DEMANDE CLIENT : ANNULATION / RETOUR / REMBOURSEMENT ---------------- */
+
 router.post("/:id/request", auth, async (req, res) => {
   try {
     const { type, reason, message } = req.body;
@@ -106,7 +142,9 @@ router.post("/:id/request", auth, async (req, res) => {
     }
 
     if (!reason || !message) {
-      return res.status(400).json({ message: "Raison et message obligatoires" });
+      return res
+        .status(400)
+        .json({ message: "Raison et message obligatoires" });
     }
 
     const order = await Order.findOne({
@@ -152,46 +190,59 @@ router.post("/:id/request", auth, async (req, res) => {
   }
 });
 
-/* MESSAGE SAV CLIENT OU ADMIN */
-router.post("/:id/support-message", auth, async (req, res) => {
-  try {
-    const { text, image } = req.body;
+/* ---------------- MESSAGE SAV CLIENT OU ADMIN AVEC IMAGE ---------------- */
 
-    if (!text && !image) {
-      return res.status(400).json({ message: "Message ou image obligatoire" });
+router.post(
+  "/:id/support-message",
+  auth,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const { text } = req.body;
+
+      let imageUrl = "";
+
+      if (req.file) {
+        imageUrl = await uploadSupportImageToCloudinary(req.file.buffer);
+      }
+
+      if (!text && !imageUrl) {
+        return res.status(400).json({ message: "Message ou image obligatoire" });
+      }
+
+      const query =
+        req.user.role === "admin"
+          ? { _id: req.params.id }
+          : { _id: req.params.id, userId: req.user.id };
+
+      const order = await Order.findOne(query);
+
+      if (!order) {
+        return res.status(404).json({ message: "Commande introuvable" });
+      }
+
+      order.supportMessages.push({
+        sender: req.user.role === "admin" ? "admin" : "client",
+        text: text || "",
+        image: imageUrl,
+        createdAt: new Date(),
+      });
+
+      await order.save();
+
+      res.json({
+        message: "Message envoyé",
+        order,
+      });
+    } catch (err) {
+      console.log("ERREUR MESSAGE SAV :", err.message);
+      res.status(500).json({ message: "Erreur message SAV" });
     }
-
-    const query =
-      req.user.role === "admin"
-        ? { _id: req.params.id }
-        : { _id: req.params.id, userId: req.user.id };
-
-    const order = await Order.findOne(query);
-
-    if (!order) {
-      return res.status(404).json({ message: "Commande introuvable" });
-    }
-
-    order.supportMessages.push({
-      sender: req.user.role === "admin" ? "admin" : "client",
-      text: text || "",
-      image: image || "",
-      createdAt: new Date(),
-    });
-
-    await order.save();
-
-    res.json({
-      message: "Message envoyé",
-      order,
-    });
-  } catch (err) {
-    console.log("ERREUR MESSAGE SAV :", err.message);
-    res.status(500).json({ message: "Erreur message SAV" });
   }
-});
+);
 
-/* TOUTES LES COMMANDES ADMIN */
+/* ---------------- TOUTES LES COMMANDES ADMIN ---------------- */
+
 router.get("/", auth, adminOnly, async (req, res) => {
   try {
     const orders = await Order.find()
@@ -204,7 +255,8 @@ router.get("/", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* CHANGER STATUT ADMIN */
+/* ---------------- CHANGER STATUT ADMIN ---------------- */
+
 router.patch("/:id/status", auth, adminOnly, async (req, res) => {
   try {
     const { status, trackingNumber, trackingUrl } = req.body;
@@ -229,7 +281,8 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* TRACKING ADMIN */
+/* ---------------- TRACKING ADMIN ---------------- */
+
 router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
   try {
     const { trackingNumber, trackingUrl } = req.body;
@@ -253,7 +306,8 @@ router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* RÉPONSE ADMIN À UNE DEMANDE CLIENT */
+/* ---------------- RÉPONSE ADMIN À UNE DEMANDE CLIENT ---------------- */
+
 router.patch("/:id/request", auth, adminOnly, async (req, res) => {
   try {
     const { decision, adminReply } = req.body;
@@ -273,7 +327,9 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
 
     order.supportMessages.push({
       sender: "admin",
-      text: adminReply || (decision === "accepted" ? "Demande acceptée" : "Demande refusée"),
+      text:
+        adminReply ||
+        (decision === "accepted" ? "Demande acceptée" : "Demande refusée"),
       image: "",
       createdAt: new Date(),
     });
@@ -294,7 +350,8 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
   }
 });
 
-/* UTILISATEURS ADMIN */
+/* ---------------- UTILISATEURS ADMIN ---------------- */
+
 router.get("/admin/users", auth, adminOnly, async (req, res) => {
   try {
     const users = await User.find()
