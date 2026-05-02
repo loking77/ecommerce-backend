@@ -9,7 +9,7 @@ const Cart = require("../models/Cart");
 const Profile = require("../models/Profile");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
-const sendMail = require("../utils/mailer");
+const { sendMail, buildMailTemplate } = require("../utils/mailer");
 
 const router = express.Router();
 
@@ -38,6 +38,11 @@ const adminOnly = (req, res, next) => {
 };
 
 const formatPrice = (price) => Number(price || 0).toFixed(2).replace(".", ",");
+
+const FRONTEND_URL =
+  process.env.CLIENT_URL ||
+  process.env.FRONTEND_URL ||
+  "https://magnificent-snickerdoodle-823fdb.netlify.app";
 
 /* ---------------- CRÉER COMMANDE MANUELLE ---------------- */
 
@@ -107,17 +112,19 @@ router.post("/", auth, async (req, res) => {
     await sendMail({
       to: user?.email,
       subject: "✅ Commande confirmée - TA SHOP DU 78",
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-            <h1 style="color:#4f46e5">Commande confirmée ✅</h1>
-            <p>Merci pour ta commande chez <strong>TA SHOP DU 78</strong>.</p>
-            <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
-            <p><strong>Total :</strong> ${formatPrice(order.total)} €</p>
-            <p>Ta facture est disponible dans ton espace client.</p>
-          </div>
-        </div>
-      `,
+      html: buildMailTemplate({
+        title: "Commande confirmée ✅",
+        subtitle: "Merci pour ton achat chez TA SHOP DU 78.",
+        badge: "COMMANDE VALIDÉE",
+        content: `
+          <p>Ta commande a bien été enregistrée.</p>
+          <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+          <p><strong>Total :</strong> ${formatPrice(order.total)} €</p>
+          <p>Ta facture est disponible dans ton espace client.</p>
+        `,
+        buttonText: "Voir mes commandes",
+        buttonUrl: `${FRONTEND_URL}/orders`,
+      }),
     });
 
     res.json({ message: "Commande créée", order });
@@ -416,20 +423,22 @@ router.post("/:id/request", auth, async (req, res) => {
     const orderFull = await Order.findById(order._id).populate("userId", "name email");
 
     await sendMail({
-      to: process.env.MAIL_USER,
+      to: process.env.EMAIL_FROM,
       subject: "💬 Nouvelle demande SAV - TA SHOP DU 78",
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-            <h2 style="color:#ec4899">Nouvelle demande client 💬</h2>
-            <p><strong>Client :</strong> ${orderFull.userId?.email}</p>
-            <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
-            <p><strong>Type :</strong> ${type}</p>
-            <p><strong>Raison :</strong> ${reason}</p>
-            <p><strong>Message :</strong> ${message}</p>
-          </div>
-        </div>
-      `,
+      html: buildMailTemplate({
+        title: "Nouvelle demande client 💬",
+        subtitle: "Un client vient d’ouvrir une demande SAV.",
+        badge: "SAV CLIENT",
+        content: `
+          <p><strong>Client :</strong> ${orderFull.userId?.email || "Non renseigné"}</p>
+          <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+          <p><strong>Type :</strong> ${type}</p>
+          <p><strong>Raison :</strong> ${reason}</p>
+          <p><strong>Message :</strong> ${message}</p>
+        `,
+        buttonText: "Ouvrir le dashboard",
+        buttonUrl: `${FRONTEND_URL}/dashboard`,
+      }),
     });
 
     res.json({ message: "Demande envoyée au vendeur", order });
@@ -476,8 +485,7 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
 
     await order.save();
 
-    const recipient =
-      sender === "admin" ? order.userId?.email : process.env.MAIL_USER;
+    const recipient = sender === "admin" ? order.userId?.email : process.env.EMAIL_FROM;
 
     await sendMail({
       to: recipient,
@@ -485,16 +493,21 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
         sender === "admin"
           ? "💬 Nouveau message du vendeur - TA SHOP DU 78"
           : "💬 Nouveau message client - TA SHOP DU 78",
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-            <h2 style="color:#4f46e5">Nouveau message SAV 💬</h2>
-            <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
-            <p>${text || "Image envoyée en pièce SAV."}</p>
-            ${imageUrl ? `<p><a href="${imageUrl}">Voir l'image envoyée</a></p>` : ""}
-          </div>
-        </div>
-      `,
+      html: buildMailTemplate({
+        title: sender === "admin" ? "Message du vendeur 💬" : "Nouveau message client 💬",
+        subtitle:
+          sender === "admin"
+            ? "Le vendeur t’a répondu concernant ta commande."
+            : "Un client vient d’envoyer un message SAV.",
+        badge: "CONVERSATION SAV",
+        content: `
+          <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+          <p>${text || "Une image a été envoyée dans la conversation SAV."}</p>
+          ${imageUrl ? `<p><a href="${imageUrl}">Voir l’image envoyée</a></p>` : ""}
+        `,
+        buttonText: sender === "admin" ? "Voir ma commande" : "Ouvrir le dashboard",
+        buttonUrl: sender === "admin" ? `${FRONTEND_URL}/orders` : `${FRONTEND_URL}/dashboard`,
+      }),
     });
 
     res.json({ message: "Message envoyé", order });
@@ -542,20 +555,17 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
       await sendMail({
         to: order.userId?.email,
         subject: "📦 Ta commande a été expédiée - TA SHOP DU 78",
-        html: `
-          <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-            <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-              <h2 style="color:#4f46e5">Commande expédiée 📦</h2>
-              <p>Ta commande #${order._id.toString().slice(-6).toUpperCase()} a été expédiée.</p>
-              <p><strong>Numéro de suivi :</strong> ${trackingNumber || "Non renseigné"}</p>
-              ${
-                trackingUrl
-                  ? `<p><a href="${trackingUrl}">Suivre mon colis</a></p>`
-                  : ""
-              }
-            </div>
-          </div>
-        `,
+        html: buildMailTemplate({
+          title: "Commande expédiée 📦",
+          subtitle: "Bonne nouvelle, ton colis est en route.",
+          badge: "EXPÉDITION",
+          content: `
+            <p>Ta commande <strong>#${order._id.toString().slice(-6).toUpperCase()}</strong> a été expédiée.</p>
+            <p><strong>Numéro de suivi :</strong> ${trackingNumber || "Non renseigné"}</p>
+          `,
+          buttonText: trackingUrl ? "Suivre mon colis" : "Voir ma commande",
+          buttonUrl: trackingUrl || `${FRONTEND_URL}/orders`,
+        }),
       });
     }
 
@@ -563,15 +573,17 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
       await sendMail({
         to: order.userId?.email,
         subject: "✅ Ta commande est livrée - TA SHOP DU 78",
-        html: `
-          <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-            <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-              <h2 style="color:#22c55e">Commande livrée ✅</h2>
-              <p>Ta commande #${order._id.toString().slice(-6).toUpperCase()} est indiquée comme livrée.</p>
-              <p>Merci pour ta confiance.</p>
-            </div>
-          </div>
-        `,
+        html: buildMailTemplate({
+          title: "Commande livrée ✅",
+          subtitle: "Ton achat est indiqué comme livré.",
+          badge: "LIVRAISON TERMINÉE",
+          content: `
+            <p>Ta commande <strong>#${order._id.toString().slice(-6).toUpperCase()}</strong> est indiquée comme livrée.</p>
+            <p>Merci pour ta confiance. Tu peux laisser un avis vérifié si ton article te plaît.</p>
+          `,
+          buttonText: "Voir ma commande",
+          buttonUrl: `${FRONTEND_URL}/orders`,
+        }),
       });
     }
 
@@ -604,20 +616,17 @@ router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
     await sendMail({
       to: order.userId?.email,
       subject: "📦 Suivi de ta commande - TA SHOP DU 78",
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-            <h2 style="color:#4f46e5">Suivi colis 📦</h2>
-            <p>Ta commande #${order._id.toString().slice(-6).toUpperCase()} est expédiée.</p>
-            <p><strong>Numéro de suivi :</strong> ${trackingNumber || "Non renseigné"}</p>
-            ${
-              trackingUrl
-                ? `<p><a href="${trackingUrl}">Suivre mon colis</a></p>`
-                : ""
-            }
-          </div>
-        </div>
-      `,
+      html: buildMailTemplate({
+        title: "Suivi colis 📦",
+        subtitle: "Ton suivi de livraison est maintenant disponible.",
+        badge: "SUIVI COMMANDE",
+        content: `
+          <p>Ta commande <strong>#${order._id.toString().slice(-6).toUpperCase()}</strong> est expédiée.</p>
+          <p><strong>Numéro de suivi :</strong> ${trackingNumber || "Non renseigné"}</p>
+        `,
+        buttonText: trackingUrl ? "Suivre mon colis" : "Voir ma commande",
+        buttonUrl: trackingUrl || `${FRONTEND_URL}/orders`,
+      }),
     });
 
     res.json(order);
@@ -663,17 +672,17 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
     await sendMail({
       to: order.userId?.email,
       subject: "📢 Mise à jour de ta demande - TA SHOP DU 78",
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:20px;background:#f4f4ff">
-          <div style="max-width:600px;margin:auto;background:white;border-radius:18px;padding:25px">
-            <h2 style="color:${decision === "accepted" ? "#22c55e" : "#ef4444"}">
-              Demande ${decision === "accepted" ? "acceptée ✅" : "refusée ❌"}
-            </h2>
-            <p>Commande #${order._id.toString().slice(-6).toUpperCase()}</p>
-            <p>${adminReply || ""}</p>
-          </div>
-        </div>
-      `,
+      html: buildMailTemplate({
+        title: decision === "accepted" ? "Demande acceptée ✅" : "Demande refusée ❌",
+        subtitle: "Le vendeur a répondu à ta demande SAV.",
+        badge: decision === "accepted" ? "DEMANDE ACCEPTÉE" : "DEMANDE REFUSÉE",
+        content: `
+          <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+          <p>${adminReply || "Une réponse a été ajoutée à ta demande."}</p>
+        `,
+        buttonText: "Voir ma commande",
+        buttonUrl: `${FRONTEND_URL}/orders`,
+      }),
     });
 
     res.json({ message: "Réponse envoyée au client", order });
