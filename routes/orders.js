@@ -145,6 +145,48 @@ router.get("/my", auth, async (req, res) => {
   }
 });
 
+/* ---------------- MARQUER MESSAGES SAV COMME LUS ---------------- */
+
+router.patch("/:id/read-support", auth, async (req, res) => {
+  try {
+    const query =
+      req.user.role === "admin"
+        ? { _id: req.params.id }
+        : { _id: req.params.id, userId: req.user.id };
+
+    const order = await Order.findOne(query).populate("userId", "name email role");
+
+    if (!order) {
+      return res.status(404).json({ message: "Commande introuvable" });
+    }
+
+    if (req.user.role === "admin") {
+      order.unreadAdminCount = 0;
+      order.supportMessages.forEach((msg) => {
+        msg.readByAdmin = true;
+      });
+    } else {
+      order.unreadClientCount = 0;
+      order.supportMessages.forEach((msg) => {
+        msg.readByClient = true;
+      });
+    }
+
+    await order.save();
+
+    const io = req.app.get("io");
+    io?.to(`order-${order._id}`).emit("support-message", {
+      order,
+      sender: req.user.role === "admin" ? "admin" : "client",
+    });
+
+    res.json(order);
+  } catch (err) {
+    console.log("ERREUR READ SUPPORT :", err.message);
+    res.status(500).json({ message: "Erreur lecture messages" });
+  }
+});
+
 /* ---------------- FACTURE PDF PREMIUM ---------------- */
 
 router.get("/:id/invoice", auth, async (req, res) => {
@@ -390,7 +432,7 @@ router.post("/:id/request", auth, async (req, res) => {
     const order = await Order.findOne({
       _id: req.params.id,
       userId: req.user.id,
-    });
+    }).populate("userId", "name email");
 
     if (!order) {
       return res.status(404).json({ message: "Commande introuvable" });
@@ -415,12 +457,21 @@ router.post("/:id/request", auth, async (req, res) => {
       sender: "client",
       text: message,
       image: "",
+      readByClient: true,
+      readByAdmin: false,
       createdAt: new Date(),
     });
 
+    order.unreadAdminCount = (order.unreadAdminCount || 0) + 1;
+    order.lastSupportMessageAt = new Date();
+
     await order.save();
 
-    const orderFull = await Order.findById(order._id).populate("userId", "name email");
+    const io = req.app.get("io");
+    io?.to(`order-${order._id}`).emit("support-message", {
+      order,
+      sender: "client",
+    });
 
     await sendMail({
       to: process.env.EMAIL_FROM,
@@ -430,7 +481,7 @@ router.post("/:id/request", auth, async (req, res) => {
         subtitle: "Un client vient d’ouvrir une demande SAV.",
         badge: "SAV CLIENT",
         content: `
-          <p><strong>Client :</strong> ${orderFull.userId?.email || "Non renseigné"}</p>
+          <p><strong>Client :</strong> ${order.userId?.email || "Non renseigné"}</p>
           <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
           <p><strong>Type :</strong> ${type}</p>
           <p><strong>Raison :</strong> ${reason}</p>
@@ -468,7 +519,7 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
         ? { _id: req.params.id }
         : { _id: req.params.id, userId: req.user.id };
 
-    const order = await Order.findOne(query).populate("userId", "name email");
+    const order = await Order.findOne(query).populate("userId", "name email role");
 
     if (!order) {
       return res.status(404).json({ message: "Commande introuvable" });
@@ -480,10 +531,26 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
       sender,
       text: text || "",
       image: imageUrl,
+      readByClient: sender === "client",
+      readByAdmin: sender === "admin",
       createdAt: new Date(),
     });
 
+    if (sender === "admin") {
+      order.unreadClientCount = (order.unreadClientCount || 0) + 1;
+    } else {
+      order.unreadAdminCount = (order.unreadAdminCount || 0) + 1;
+    }
+
+    order.lastSupportMessageAt = new Date();
+
     await order.save();
+
+    const io = req.app.get("io");
+    io?.to(`order-${order._id}`).emit("support-message", {
+      order,
+      sender,
+    });
 
     const recipient = sender === "admin" ? order.userId?.email : process.env.EMAIL_FROM;
 
@@ -660,14 +727,25 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
         adminReply ||
         (decision === "accepted" ? "Demande acceptée" : "Demande refusée"),
       image: "",
+      readByClient: false,
+      readByAdmin: true,
       createdAt: new Date(),
     });
+
+    order.unreadClientCount = (order.unreadClientCount || 0) + 1;
+    order.lastSupportMessageAt = new Date();
 
     if (decision === "accepted" && order.customerRequest.type === "cancel") {
       order.status = "Annulée";
     }
 
     await order.save();
+
+    const io = req.app.get("io");
+    io?.to(`order-${order._id}`).emit("support-message", {
+      order,
+      sender: "admin",
+    });
 
     await sendMail({
       to: order.userId?.email,
