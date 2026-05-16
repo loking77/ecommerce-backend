@@ -149,10 +149,11 @@ router.get("/my", auth, async (req, res) => {
 
 router.patch("/:id/read-support", auth, async (req, res) => {
   try {
-    const query =
-      req.user.role === "admin"
-        ? { _id: req.params.id }
-        : { _id: req.params.id, userId: req.user.id };
+    const isAdmin = req.user.role === "admin";
+
+    const query = isAdmin
+      ? { _id: req.params.id }
+      : { _id: req.params.id, userId: req.user.id };
 
     const order = await Order.findOne(query).populate("userId", "name email role");
 
@@ -160,27 +161,38 @@ router.patch("/:id/read-support", auth, async (req, res) => {
       return res.status(404).json({ message: "Commande introuvable" });
     }
 
-    if (req.user.role === "admin") {
-      order.unreadAdminCount = 0;
-      order.supportMessages.forEach((msg) => {
+    order.supportMessages.forEach((msg) => {
+      if (isAdmin && msg.sender === "client") {
         msg.readByAdmin = true;
-      });
+      }
+
+      if (!isAdmin && msg.sender === "admin") {
+        msg.readByClient = true;
+      }
+    });
+
+    if (isAdmin) {
+      order.unreadAdminCount = 0;
     } else {
       order.unreadClientCount = 0;
-      order.supportMessages.forEach((msg) => {
-        msg.readByClient = true;
-      });
     }
 
     await order.save();
 
+    const updatedOrder = await Order.findById(order._id).populate(
+      "userId",
+      "name email role"
+    );
+
     const io = req.app.get("io");
+
     io?.to(`order-${order._id}`).emit("support-message", {
-      order,
-      sender: req.user.role === "admin" ? "admin" : "client",
+      order: updatedOrder,
+      sender: isAdmin ? "admin" : "client",
+      type: "read",
     });
 
-    res.json(order);
+    res.json(updatedOrder);
   } catch (err) {
     console.log("ERREUR READ SUPPORT :", err.message);
     res.status(500).json({ message: "Erreur lecture messages" });
@@ -546,9 +558,14 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
 
     await order.save();
 
+    const updatedOrder = await Order.findById(order._id).populate(
+      "userId",
+      "name email role"
+    );
+
     const io = req.app.get("io");
     io?.to(`order-${order._id}`).emit("support-message", {
-      order,
+      order: updatedOrder,
       sender,
     });
 
@@ -577,7 +594,7 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
       }),
     });
 
-    res.json({ message: "Message envoyé", order });
+    res.json({ message: "Message envoyé", order: updatedOrder });
   } catch (err) {
     console.log("ERREUR MESSAGE SAV :", err.message);
     res.status(500).json({ message: "Erreur message SAV" });
@@ -741,9 +758,14 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
 
     await order.save();
 
+    const updatedOrder = await Order.findById(order._id).populate(
+      "userId",
+      "name email role"
+    );
+
     const io = req.app.get("io");
     io?.to(`order-${order._id}`).emit("support-message", {
-      order,
+      order: updatedOrder,
       sender: "admin",
     });
 
@@ -763,7 +785,7 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
       }),
     });
 
-    res.json({ message: "Réponse envoyée au client", order });
+    res.json({ message: "Réponse envoyée au client", order: updatedOrder });
   } catch (err) {
     console.log("ERREUR RÉPONSE ADMIN :", err.message);
     res.status(500).json({ message: "Erreur réponse admin" });
