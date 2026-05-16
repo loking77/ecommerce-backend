@@ -5,7 +5,8 @@ const auth = require("../middleware/auth");
 
 const router = express.Router();
 
-// VOIR PANIER
+/* ---------------- VOIR PANIER ---------------- */
+
 router.get("/", auth, async (req, res) => {
   try {
     let cart = await Cart.findOne({ userId: req.user.id }).populate("items.productId");
@@ -15,21 +16,45 @@ router.get("/", auth, async (req, res) => {
         userId: req.user.id,
         items: [],
       });
+
       await cart.save();
     }
 
     res.json(cart);
   } catch (err) {
+    console.log("ERREUR PANIER :", err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
 
-// AJOUTER PRODUIT
+/* ---------------- AJOUTER PRODUIT ---------------- */
+
 router.post("/add", auth, async (req, res) => {
   try {
-    const { productId } = req.body;
+    const { productId, selectedColor = "", selectedSize = "" } = req.body;
 
-    // Compteur "intéressés"
+    const product = await Product.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({ message: "Produit introuvable" });
+    }
+
+    if (Number(product.stock || 0) <= 0) {
+      return res.status(400).json({ message: "Produit en rupture de stock" });
+    }
+
+    if (product.colors?.length > 0 && !selectedColor) {
+      return res.status(400).json({
+        message: "Choisis une couleur avant d’ajouter au panier",
+      });
+    }
+
+    if (product.sizes?.length > 0 && !selectedSize) {
+      return res.status(400).json({
+        message: "Choisis une taille avant d’ajouter au panier",
+      });
+    }
+
     await Product.findByIdAndUpdate(productId, {
       $inc: { cartAdds: 1 },
     });
@@ -44,15 +69,26 @@ router.post("/add", auth, async (req, res) => {
     }
 
     const item = cart.items.find(
-      (item) => item.productId.toString() === productId
+      (item) =>
+        item.productId.toString() === productId &&
+        (item.selectedColor || "") === selectedColor &&
+        (item.selectedSize || "") === selectedSize
     );
 
     if (item) {
+      if (item.quantity + 1 > Number(product.stock || 0)) {
+        return res.status(400).json({
+          message: `Stock insuffisant. Stock disponible : ${product.stock}`,
+        });
+      }
+
       item.quantity += 1;
     } else {
       cart.items.push({
         productId,
         quantity: 1,
+        selectedColor,
+        selectedSize,
       });
     }
 
@@ -67,10 +103,12 @@ router.post("/add", auth, async (req, res) => {
   }
 });
 
-// DIMINUER QUANTITÉ
+/* ---------------- DIMINUER QUANTITÉ ---------------- */
+
 router.patch("/decrease/:productId", auth, async (req, res) => {
   try {
     const { productId } = req.params;
+    const { selectedColor = "", selectedSize = "" } = req.body;
 
     let cart = await Cart.findOne({ userId: req.user.id });
 
@@ -79,7 +117,10 @@ router.patch("/decrease/:productId", auth, async (req, res) => {
     }
 
     const item = cart.items.find(
-      (item) => item.productId.toString() === productId
+      (item) =>
+        item.productId.toString() === productId &&
+        (item.selectedColor || "") === selectedColor &&
+        (item.selectedSize || "") === selectedSize
     );
 
     if (!item) {
@@ -90,7 +131,12 @@ router.patch("/decrease/:productId", auth, async (req, res) => {
       item.quantity -= 1;
     } else {
       cart.items = cart.items.filter(
-        (item) => item.productId.toString() !== productId
+        (item) =>
+          !(
+            item.productId.toString() === productId &&
+            (item.selectedColor || "") === selectedColor &&
+            (item.selectedSize || "") === selectedSize
+          )
       );
     }
 
@@ -100,14 +146,17 @@ router.patch("/decrease/:productId", auth, async (req, res) => {
 
     res.json(cart);
   } catch (err) {
+    console.log("ERREUR DIMINUTION PANIER :", err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
 
-// SUPPRIMER PRODUIT COMPLET
+/* ---------------- SUPPRIMER PRODUIT COMPLET ---------------- */
+
 router.delete("/remove/:productId", auth, async (req, res) => {
   try {
     const { productId } = req.params;
+    const { selectedColor = "", selectedSize = "" } = req.body;
 
     let cart = await Cart.findOne({ userId: req.user.id });
 
@@ -116,7 +165,12 @@ router.delete("/remove/:productId", auth, async (req, res) => {
     }
 
     cart.items = cart.items.filter(
-      (item) => item.productId.toString() !== productId
+      (item) =>
+        !(
+          item.productId.toString() === productId &&
+          (item.selectedColor || "") === selectedColor &&
+          (item.selectedSize || "") === selectedSize
+        )
     );
 
     await cart.save();
@@ -125,11 +179,13 @@ router.delete("/remove/:productId", auth, async (req, res) => {
 
     res.json(cart);
   } catch (err) {
+    console.log("ERREUR SUPPRESSION PANIER :", err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });
 
-// VIDER PANIER
+/* ---------------- VIDER PANIER ---------------- */
+
 router.delete("/clear", auth, async (req, res) => {
   try {
     let cart = await Cart.findOne({ userId: req.user.id });
@@ -141,6 +197,7 @@ router.delete("/clear", auth, async (req, res) => {
 
     res.json({ message: "Panier vidé" });
   } catch (err) {
+    console.log("ERREUR VIDAGE PANIER :", err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 });

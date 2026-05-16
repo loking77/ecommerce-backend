@@ -42,7 +42,7 @@ const formatPrice = (price) => Number(price || 0).toFixed(2).replace(".", ",");
 const FRONTEND_URL =
   process.env.CLIENT_URL ||
   process.env.FRONTEND_URL ||
-  "https://magnificent-snickerdoodle-823fdb.netlify.app";
+  "https://tashopdu78.netlify.app";
 
 /* ---------------- CRÉER COMMANDE MANUELLE ---------------- */
 
@@ -58,10 +58,15 @@ router.post("/", auth, async (req, res) => {
 
     const items = validItems.map((item) => ({
       productId: item.productId._id,
-      name: item.productId.name,
+      name:
+        item.productId.name +
+        (item.selectedColor ? ` - ${item.selectedColor}` : "") +
+        (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
       image: item.productId.image,
       price: item.productId.price,
       quantity: item.quantity,
+      selectedColor: item.selectedColor || "",
+      selectedSize: item.selectedSize || "",
     }));
 
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -327,23 +332,39 @@ router.get("/:id/invoice", auth, async (req, res) => {
       const lineTotal = Number(item.price || 0) * Number(item.quantity || 1);
 
       doc
-        .roundedRect(tableX, y - 8, pageWidth - 110, 44, 12)
+        .roundedRect(tableX, y - 8, pageWidth - 110, 54, 12)
         .fill(index % 2 === 0 ? "#ffffff" : "#fafafa");
 
-      doc.roundedRect(tableX, y - 8, pageWidth - 110, 44, 12).strokeColor(border).stroke();
+      doc.roundedRect(tableX, y - 8, pageWidth - 110, 54, 12).strokeColor(border).stroke();
 
       doc.fillColor(dark).fontSize(10).font("Helvetica-Bold").text(item.name || "Produit", tableX + 18, y, {
         width: 240,
       });
 
+      if (item.selectedColor || item.selectedSize) {
+        doc
+          .fontSize(8)
+          .font("Helvetica")
+          .fillColor(grey)
+          .text(
+            `${item.selectedColor ? `Couleur : ${item.selectedColor}` : ""}${
+              item.selectedColor && item.selectedSize ? "  |  " : ""
+            }${item.selectedSize ? `Taille : ${item.selectedSize}` : ""}`,
+            tableX + 18,
+            y + 15,
+            { width: 240 }
+          );
+      }
+
       doc
         .font("Helvetica")
+        .fontSize(10)
         .fillColor(grey)
         .text(String(item.quantity || 1), 330, y)
         .text(`${formatPrice(item.price)} EUR`, 390, y)
         .text(`${formatPrice(lineTotal)} EUR`, 470, y);
 
-      y += 52;
+      y += 62;
     });
 
     y += 15;

@@ -18,6 +18,16 @@ const OrderSchema = new mongoose.Schema(
         image: String,
         price: Number,
         quantity: Number,
+
+        selectedColor: {
+          type: String,
+          default: "",
+        },
+
+        selectedSize: {
+          type: String,
+          default: "",
+        },
       },
     ],
 

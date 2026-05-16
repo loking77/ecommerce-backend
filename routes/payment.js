@@ -30,24 +30,38 @@ router.post(
       const validItems = cart.items.filter((item) => item.productId);
 
       if (validItems.length === 0) {
-        return res
-          .status(400)
-          .json({ message: "Aucun produit valide dans le panier" });
+        return res.status(400).json({
+          message: "Aucun produit valide dans le panier",
+        });
       }
 
       const orderItemsForMetadata = validItems.map((item) => ({
         productId: String(item.productId._id),
-        name: item.productId.name,
+
+        name:
+          item.productId.name +
+          (item.selectedColor ? ` - ${item.selectedColor}` : "") +
+          (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
+
         image: item.productId.image || "",
+
         price: Number(item.productId.price || 0),
+
         quantity: Number(item.quantity || 1),
+
+        selectedColor: item.selectedColor || "",
+
+        selectedSize: item.selectedSize || "",
       }));
 
       const line_items = validItems.map((item) => ({
         price_data: {
           currency: "eur",
           product_data: {
-            name: item.productId.name,
+            name:
+              item.productId.name +
+              (item.selectedColor ? ` - ${item.selectedColor}` : "") +
+              (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
           },
           unit_amount: Math.round(Number(item.productId.price || 0) * 100),
         },
@@ -173,10 +187,21 @@ router.post(
 
           items = validItems.map((item) => ({
             productId: item.productId._id,
-            name: item.productId.name,
+
+            name:
+              item.productId.name +
+              (item.selectedColor ? ` - ${item.selectedColor}` : "") +
+              (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
+
             image: item.productId.image || "",
+
             price: Number(item.productId.price || 0),
+
             quantity: Number(item.quantity || 1),
+
+            selectedColor: item.selectedColor || "",
+
+            selectedSize: item.selectedSize || "",
           }));
         }
 
