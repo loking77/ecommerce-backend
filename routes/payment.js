@@ -37,20 +37,11 @@ router.post(
 
       const orderItemsForMetadata = validItems.map((item) => ({
         productId: String(item.productId._id),
-
-        name:
-          item.productId.name +
-          (item.selectedColor ? ` - ${item.selectedColor}` : "") +
-          (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
-
+        name: item.productId.name,
         image: item.productId.image || "",
-
         price: Number(item.productId.price || 0),
-
         quantity: Number(item.quantity || 1),
-
         selectedColor: item.selectedColor || "",
-
         selectedSize: item.selectedSize || "",
       }));
 
@@ -58,10 +49,7 @@ router.post(
         price_data: {
           currency: "eur",
           product_data: {
-            name:
-              item.productId.name +
-              (item.selectedColor ? ` - ${item.selectedColor}` : "") +
-              (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
+            name: item.productId.name,
           },
           unit_amount: Math.round(Number(item.productId.price || 0) * 100),
         },
@@ -131,14 +119,10 @@ router.post(
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    console.log("🔥 EVENT TYPE:", event.type);
-
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
 
       try {
-        console.log("🔥 METADATA:", session.metadata);
-
         const existingOrder = await Order.findOne({
           "payment.stripeSessionId": session.id,
         });
@@ -173,7 +157,6 @@ router.post(
         };
 
         if (!userId) {
-          console.log("WEBHOOK ERROR : userId manquant dans metadata");
           return res.json({ received: true });
         }
 
@@ -187,26 +170,16 @@ router.post(
 
           items = validItems.map((item) => ({
             productId: item.productId._id,
-
-            name:
-              item.productId.name +
-              (item.selectedColor ? ` - ${item.selectedColor}` : "") +
-              (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
-
+            name: item.productId.name,
             image: item.productId.image || "",
-
             price: Number(item.productId.price || 0),
-
             quantity: Number(item.quantity || 1),
-
             selectedColor: item.selectedColor || "",
-
             selectedSize: item.selectedSize || "",
           }));
         }
 
         if (!items || items.length === 0) {
-          console.log("WEBHOOK : aucun item trouvé pour créer la commande");
           return res.json({ received: true });
         }
 
