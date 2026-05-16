@@ -330,13 +330,61 @@ app.put("/products/:id", auth, adminOnly, upload.array("images"), async (req, re
 
 app.delete("/products/:id", auth, adminOnly, async (req, res) => {
   try {
-    await Product.findByIdAndDelete(req.params.id);
-    await Review.deleteMany({ productId: req.params.id });
-    await UserActivity.deleteMany({ productId: req.params.id });
+    const product = await Product.findById(req.params.id);
 
-    res.json({ message: "Produit supprimé" });
-  } catch {
-    res.status(500).json({ message: "Erreur suppression" });
+    if (!product) {
+      return res.status(404).json({
+        message: "Produit introuvable",
+      });
+    }
+
+    const extractPublicId = (url) => {
+      try {
+        const parts = url.split("/");
+        const file = parts[parts.length - 1];
+        return `ecommerce/${file.split(".")[0]}`;
+      } catch {
+        return null;
+      }
+    };
+
+    if (product.images && product.images.length > 0) {
+      for (const imageUrl of product.images) {
+        const publicId = extractPublicId(imageUrl);
+
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      }
+    }
+
+    if (product.image) {
+      const publicId = extractPublicId(product.image);
+
+      if (publicId) {
+        await cloudinary.uploader.destroy(publicId);
+      }
+    }
+
+    await Product.findByIdAndDelete(req.params.id);
+
+    await Review.deleteMany({
+      productId: req.params.id,
+    });
+
+    await UserActivity.deleteMany({
+      productId: req.params.id,
+    });
+
+    res.json({
+      message: "Produit supprimé + images Cloudinary supprimées",
+    });
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      message: "Erreur suppression",
+    });
   }
 });
 
