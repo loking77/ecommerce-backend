@@ -109,6 +109,7 @@ const cartRoutes = require("./routes/cart");
 const profileRoutes = require("./routes/profile");
 const orderRoutes = require("./routes/orders");
 const shippingRoutes = require("./routes/shipping");
+const notificationRoutes = require("./routes/notifications");
 
 /* ---------------- STRIPE PAYMENT ROUTES AVANT JSON ---------------- */
 
@@ -126,6 +127,7 @@ app.use("/cart", cartRoutes);
 app.use("/profile", profileRoutes);
 app.use("/orders", orderRoutes);
 app.use("/shipping", shippingRoutes);
+app.use("/notifications", notificationRoutes);
 
 /* ---------------- CLOUDINARY ---------------- */
 
