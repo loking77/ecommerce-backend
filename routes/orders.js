@@ -57,11 +57,13 @@ const sendPushToUser = async (
         fcmOptions: {
           link: url,
         },
-        notification: {
-          icon: "/logo192.png",
-          badge: "/logo192.png",
-        },
-      },
+       notification: {
+  icon: "/logo192.png",
+  badge: "/logo192.png",
+  data: {
+    url,
+  },
+},
     });
 
     console.log("Notification push envoyée ✅");
