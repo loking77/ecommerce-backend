@@ -47,24 +47,25 @@ const sendPushToUser = async (
       return;
     }
 
-    await admin.messaging().sendEachForMulticast({
-      tokens: tokens.map((t) => t.token),
-      notification: {
-        title,
-        body,
-      },
-      webpush: {
-        fcmOptions: {
-          link: url,
-        },
-       notification: {
-  icon: "/logo192.png",
-  badge: "/logo192.png",
-  data: {
-    url,
+   await admin.messaging().sendEachForMulticast({
+  tokens: tokens.map((t) => t.token),
+  notification: {
+    title,
+    body,
   },
-},
-    });
+  webpush: {
+    fcmOptions: {
+      link: url,
+    },
+    notification: {
+      icon: "/logo192.png",
+      badge: "/logo192.png",
+      data: {
+        url,
+      },
+    },
+  },
+});
 
     console.log("Notification push envoyée ✅");
   } catch (err) {
