@@ -3,11 +3,13 @@ const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const streamifier = require("streamifier");
 const PDFDocument = require("pdfkit");
+const admin = require("firebase-admin");
 
 const Order = require("../models/Order");
 const Cart = require("../models/Cart");
 const Profile = require("../models/Profile");
 const User = require("../models/User");
+const PushToken = require("../models/PushToken");
 const auth = require("../middleware/auth");
 const { sendMail, buildMailTemplate } = require("../utils/mailer");
 
@@ -15,6 +17,58 @@ const router = express.Router();
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
+
+const FRONTEND_URL =
+  process.env.CLIENT_URL ||
+  process.env.FRONTEND_URL ||
+  "https://tashopdu78.netlify.app";
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+  });
+}
+
+const sendPushToUser = async (
+  userId,
+  title,
+  body,
+  url = `${FRONTEND_URL}/orders`
+) => {
+  try {
+    const tokens = await PushToken.find({ userId });
+
+    if (!tokens.length) {
+      console.log("Aucun token push pour cet utilisateur");
+      return;
+    }
+
+    await admin.messaging().sendEachForMulticast({
+      tokens: tokens.map((t) => t.token),
+      notification: {
+        title,
+        body,
+      },
+      webpush: {
+        fcmOptions: {
+          link: url,
+        },
+        notification: {
+          icon: "/logo192.png",
+          badge: "/logo192.png",
+        },
+      },
+    });
+
+    console.log("Notification push envoyée ✅");
+  } catch (err) {
+    console.log("ERREUR PUSH :", err.message);
+  }
+};
 
 const uploadSupportImageToCloudinary = (buffer) => {
   return new Promise((resolve, reject) => {
@@ -39,16 +93,13 @@ const adminOnly = (req, res, next) => {
 
 const formatPrice = (price) => Number(price || 0).toFixed(2).replace(".", ",");
 
-const FRONTEND_URL =
-  process.env.CLIENT_URL ||
-  process.env.FRONTEND_URL ||
-  "https://tashopdu78.netlify.app";
-
 /* ---------------- CRÉER COMMANDE MANUELLE ---------------- */
 
 router.post("/", auth, async (req, res) => {
   try {
-    const cart = await Cart.findOne({ userId: req.user.id }).populate("items.productId");
+    const cart = await Cart.findOne({ userId: req.user.id }).populate(
+      "items.productId"
+    );
 
     if (!cart || cart.items.length === 0) {
       return res.status(400).json({ message: "Panier vide" });
@@ -58,10 +109,7 @@ router.post("/", auth, async (req, res) => {
 
     const items = validItems.map((item) => ({
       productId: item.productId._id,
-      name:
-        item.productId.name +
-        (item.selectedColor ? ` - ${item.selectedColor}` : "") +
-        (item.selectedSize ? ` - Taille ${item.selectedSize}` : ""),
+      name: item.productId.name,
       image: item.productId.image,
       price: item.productId.price,
       quantity: item.quantity,
@@ -69,7 +117,10 @@ router.post("/", auth, async (req, res) => {
       selectedSize: item.selectedSize || "",
     }));
 
-    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const subtotal = items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
 
     const selectedShipping = req.body.shipping || {
       carrier: "Standard",
@@ -123,7 +174,10 @@ router.post("/", auth, async (req, res) => {
         badge: "COMMANDE VALIDÉE",
         content: `
           <p>Ta commande a bien été enregistrée.</p>
-          <p><strong>Commande :</strong> #${order._id.toString().slice(-6).toUpperCase()}</p>
+          <p><strong>Commande :</strong> #${order._id
+            .toString()
+            .slice(-6)
+            .toUpperCase()}</p>
           <p><strong>Total :</strong> ${formatPrice(order.total)} €</p>
           <p>Ta facture est disponible dans ton espace client.</p>
         `,
@@ -143,7 +197,9 @@ router.post("/", auth, async (req, res) => {
 
 router.get("/my", auth, async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    const orders = await Order.find({ userId: req.user.id }).sort({
+      createdAt: -1,
+    });
     res.json(orders);
   } catch (err) {
     res.status(500).json({ message: "Erreur chargement commandes" });
@@ -167,20 +223,12 @@ router.patch("/:id/read-support", auth, async (req, res) => {
     }
 
     order.supportMessages.forEach((msg) => {
-      if (isAdmin && msg.sender === "client") {
-        msg.readByAdmin = true;
-      }
-
-      if (!isAdmin && msg.sender === "admin") {
-        msg.readByClient = true;
-      }
+      if (isAdmin && msg.sender === "client") msg.readByAdmin = true;
+      if (!isAdmin && msg.sender === "admin") msg.readByClient = true;
     });
 
-    if (isAdmin) {
-      order.unreadAdminCount = 0;
-    } else {
-      order.unreadClientCount = 0;
-    }
+    if (isAdmin) order.unreadAdminCount = 0;
+    else order.unreadClientCount = 0;
 
     await order.save();
 
@@ -615,6 +663,15 @@ router.post("/:id/support-message", auth, upload.single("image"), async (req, re
       }),
     });
 
+    if (sender === "admin") {
+      await sendPushToUser(
+        order.userId._id,
+        "💬 Nouveau message du vendeur",
+        text || "Le vendeur t’a envoyé une réponse SAV.",
+        `${FRONTEND_URL}/orders`
+      );
+    }
+
     res.json({ message: "Message envoyé", order: updatedOrder });
   } catch (err) {
     console.log("ERREUR MESSAGE SAV :", err.message);
@@ -656,6 +713,10 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
       new: true,
     }).populate("userId", "name email");
 
+    if (!order) {
+      return res.status(404).json({ message: "Commande introuvable" });
+    }
+
     if (status === "Expédiée") {
       await sendMail({
         to: order.userId?.email,
@@ -672,6 +733,13 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
           buttonUrl: trackingUrl || `${FRONTEND_URL}/orders`,
         }),
       });
+
+      await sendPushToUser(
+        order.userId._id,
+        "📦 Commande expédiée",
+        `Ta commande #${order._id.toString().slice(-6).toUpperCase()} est en route.`,
+        `${FRONTEND_URL}/orders`
+      );
     }
 
     if (status === "Livrée") {
@@ -690,6 +758,13 @@ router.patch("/:id/status", auth, adminOnly, async (req, res) => {
           buttonUrl: `${FRONTEND_URL}/orders`,
         }),
       });
+
+      await sendPushToUser(
+        order.userId._id,
+        "✅ Commande livrée",
+        `Ta commande #${order._id.toString().slice(-6).toUpperCase()} est indiquée comme livrée.`,
+        `${FRONTEND_URL}/orders`
+      );
     }
 
     res.json(order);
@@ -718,6 +793,10 @@ router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
       { new: true }
     ).populate("userId", "name email");
 
+    if (!order) {
+      return res.status(404).json({ message: "Commande introuvable" });
+    }
+
     await sendMail({
       to: order.userId?.email,
       subject: "📦 Suivi de ta commande - TA SHOP DU 78",
@@ -733,6 +812,13 @@ router.patch("/:id/tracking", auth, adminOnly, async (req, res) => {
         buttonUrl: trackingUrl || `${FRONTEND_URL}/orders`,
       }),
     });
+
+    await sendPushToUser(
+      order.userId._id,
+      "📦 Suivi colis disponible",
+      `Ta commande #${order._id.toString().slice(-6).toUpperCase()} est expédiée.`,
+      `${FRONTEND_URL}/orders`
+    );
 
     res.json(order);
   } catch (err) {
@@ -805,6 +891,13 @@ router.patch("/:id/request", auth, adminOnly, async (req, res) => {
         buttonUrl: `${FRONTEND_URL}/orders`,
       }),
     });
+
+    await sendPushToUser(
+      order.userId._id,
+      decision === "accepted" ? "✅ Demande acceptée" : "❌ Demande refusée",
+      adminReply || "Le vendeur a répondu à ta demande SAV.",
+      `${FRONTEND_URL}/orders`
+    );
 
     res.json({ message: "Réponse envoyée au client", order: updatedOrder });
   } catch (err) {
